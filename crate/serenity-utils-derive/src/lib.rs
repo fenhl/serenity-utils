@@ -97,7 +97,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             MissingNewline,
             /// Returned from `listen` if a command line was not valid shell lexer tokens.
             #[from(ignore)]
-            Shlex(::shlex::Error, String),
+            Shlex(::serenity_utils::shlex::Error, String),
             /// Returned from `listen` if an unknown command is received.
             #[from(ignore)]
             UnknownCommand(Vec<String>),
@@ -134,7 +134,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     }
                 };
                 buf.push_str(&line);
-                let args = match ::shlex::split(&buf) {
+                let args = match ::serenity_utils::shlex::split(&buf) {
                     Ok(args) => {
                         last_error = Ok(());
                         buf.clear();
@@ -183,7 +183,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         /// Sends an IPC command to the bot.
         pub fn send<T: ::std::fmt::Display, I: IntoIterator<Item = T>>(cmd: I) -> Result<String, Error> {
             let mut stream = ::std::net::TcpStream::connect(addr())?;
-            writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::shlex::quote(&arg.to_string()).into_owned()).collect::<Vec<_>>().join(" "))?;
+            writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::quote(&arg.to_string()).into_owned()).collect::<Vec<_>>().join(" "))?;
             let mut buf = String::default();
             ::std::io::BufReader::new(stream).read_line(&mut buf)?;
             if buf.pop() != Some('\n') { return Err(Error::MissingNewline) }
