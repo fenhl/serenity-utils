@@ -1,0 +1,15 @@
+[package]
+name = "serenity-utils-derive"
+version = "0.2.0"
+authors = ["Fenhl <fenhl@fenhl.net>"]
+edition = "2018"
+
+[lib]
+name = "serenity_utils_derive"
+path = "src/lib.rs"
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = "1"
