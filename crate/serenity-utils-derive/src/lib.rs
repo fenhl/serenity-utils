@@ -217,6 +217,16 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     }
                 }
 
+                impl ::std::fmt::Display for Error {
+                    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                        match self {
+                            Error::Io(e) => e.fmt(f),
+                            Error::MissingNewline => write!(f, "the reply to an IPC command did not end in a newline"),
+                            Error::WrongReply { expected, received } => write!(f, "unexpected IPC command reply: expected {:?}, received {:?}", expected, received)
+                        }
+                    }
+                }
+
                 /// The address and port where the bot listens for IPC commands.
                 fn addr() -> ::std::net::SocketAddr {
                     ::std::net::SocketAddr::from(([127, 0, 0, 1], PORT))
