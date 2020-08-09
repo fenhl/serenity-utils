@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 derive_more = "0.99" # used in proc macro
-parking_lot = "0.11" # used in proc macro
+parking_lot = "0.9" # because serenity still uses 0.9 — used in proc macro
 serde = "1"
 serde_json = "1"
 serenity = "0.8"
