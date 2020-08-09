@@ -121,7 +121,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             ::std::net::SocketAddr::from(([127, 0, 0, 1], PORT))
         }
 
-        fn handle_client(ctx_arc: &::parking_lot::Mutex<Option<::serenity::client::Context>>, stream: ::std::net::TcpStream) -> Result<(), Error> {
+        fn handle_client(ctx_arc: &::serenity_utils::parking_lot::Mutex<Option<::serenity::client::Context>>, stream: ::std::net::TcpStream) -> Result<(), Error> {
             let mut last_error = Ok(());
             let mut buf = String::default();
             for line in ::std::io::BufReader::new(&stream).lines() {
@@ -163,7 +163,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             last_error
         }
 
-        pub fn listen(ctx_arc: ::std::sync::Arc<(::parking_lot::Mutex<Option<::serenity::client::Context>>, ::parking_lot::Condvar)>, notify_thread_crash: &impl Fn(&Option<::serenity::client::Context>, &str, Error)) -> Result<(), ::std::io::Error> { //TODO change return type to Result<!, ::std::io::Error>
+        pub fn listen(ctx_arc: ::std::sync::Arc<(::serenity_utils::parking_lot::Mutex<Option<::serenity::client::Context>>, ::serenity_utils::parking_lot::Condvar)>, notify_thread_crash: &impl Fn(&Option<::serenity::client::Context>, &str, Error)) -> Result<(), ::std::io::Error> { //TODO change return type to Result<!, ::std::io::Error>
             {
                 // make sure Serenity context is available before accepting IPC connections
                 let (ref ctx_arc, ref cond) = *ctx_arc;
