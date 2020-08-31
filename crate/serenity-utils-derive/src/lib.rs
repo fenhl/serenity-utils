@@ -67,7 +67,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             quote! {
                 #(#docs)*
                 pub fn #fn_name(#(#typed_args),*) -> Result<(), Error> {
-                    let received = send(vec![#(#untyped_args.to_string()),*])?;
+                    let received = send(vec![#cmd_name #(, #untyped_args.to_string())*])?;
                     if received != #cmd_name {
                         return Err(Error::WrongReply {
                             received,
