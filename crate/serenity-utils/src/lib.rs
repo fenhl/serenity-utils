@@ -26,9 +26,11 @@ pub use crate::{
 */ //TODO
 #[doc(hidden)] pub use {
     derive_more,
+    futures,
     parking_lot,
     serenity,
     shlex,
+    tokio,
 }; // used in proc macro
 
 #[derive(Debug)]

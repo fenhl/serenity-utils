@@ -80,7 +80,11 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         })
         .collect::<Vec<_>>();
     TokenStream::from(quote! {
-        use ::std::io::prelude::*;
+        use {
+            ::std::io::prelude::*,
+            ::serenity_utils::futures::prelude::*,
+            ::serenity_utils::tokio::prelude::*,
+        };
         #uses
 
         #port
@@ -121,10 +125,12 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             ::std::net::SocketAddr::from(([127, 0, 0, 1], PORT))
         }
 
-        async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::std::net::TcpStream) -> Result<(), Error> {
+        async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::serenity_utils::tokio::net::TcpStream) -> Result<(), Error> {
             let mut last_error = Ok(());
             let mut buf = String::default();
-            for line in ::std::io::BufReader::new(&stream).lines() {
+            let (reader, mut writer) = stream.into_split();
+            let mut lines = ::serenity_utils::tokio::io::AsyncBufReadExt::lines(::serenity_utils::tokio::io::BufReader::new(reader));
+            while let Some(line) = lines.next().await {
                 let line = match line {
                     Ok(line) => line,
                     Err(e) => if e.kind() == ::std::io::ErrorKind::ConnectionReset {
@@ -143,7 +149,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     Err(e) => {
                         last_error = Err(Error::Shlex(e, line));
                         buf.push('\n');
-                        continue;
+                        continue
                     }
                 };
                 match &args[0][..] {
@@ -151,19 +157,20 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                         #cmd_names => {
                             let ctx = ctx_fut.read().await;
                             match #fn_names(&*ctx #(, args[#parse_args].parse::<#arg_types>().map_err(|e| Error::ArgParse(e.to_string()))?)*).await {
-                                Ok(()) => writeln!(&mut &stream, #cmd_names)?,
-                                Err(msg) => writeln!(&mut &stream, "{}", msg)?
+                                Ok(()) => writer.write_all(&format!("{}\n", #cmd_names).into_bytes()).await?,
+                                Err(msg) => writer.write_all(&format!("{}\n", msg).into_bytes()).await?,
                             }
                         }
                     )*
-                    _ => { return Err(Error::UnknownCommand(args)); }
+                    _ => return Err(Error::UnknownCommand(args)),
                 }
             }
             last_error
         }
 
         pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::serenity_utils::RwFuture<::serenity::client::Context>, String, Error) -> Fut) -> Result<(), ::std::io::Error> { //TODO change return type to Result<!, ::std::io::Error>
-            for stream in ::std::net::TcpListener::bind(addr())?.incoming() {
+            let mut listener = ::serenity_utils::tokio::net::TcpListener::bind(addr()).await?;
+            while let Some(stream) = listener.next().await {
                 let stream = match stream.map_err(Error::Io) {
                     Ok(stream) => stream,
                     Err(e) => {
@@ -179,7 +186,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         }
 
         /// Sends an IPC command to the bot.
-        pub fn send<T: ::std::fmt::Display, I: IntoIterator<Item = T>>(cmd: I) -> Result<String, Error> {
+        pub fn send<T: ::std::fmt::Display, I: IntoIterator<Item = T>>(cmd: I) -> Result<String, Error> { //TODO rename to send_sync and add async variant?
             let mut stream = ::std::net::TcpStream::connect(addr())?;
             writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::quote(&arg.to_string()).into_owned()).collect::<Vec<_>>().join(" "))?;
             let mut buf = String::default();
