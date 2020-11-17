@@ -12,9 +12,9 @@ use {
         ItemUse,
         parse::{
             ParseStream,
-            Parser as _
-        }
-    }
+            Parser as _,
+        },
+    },
 };
 
 fn parser(input: ParseStream<'_>) -> Result<(ItemUse, ItemConst, Vec<ItemFn>), syn::Error> {
@@ -121,7 +121,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             ::std::net::SocketAddr::from(([127, 0, 0, 1], PORT))
         }
 
-        fn handle_client(ctx_arc: &::serenity_utils::parking_lot::Mutex<Option<::serenity::client::Context>>, stream: ::std::net::TcpStream) -> Result<(), Error> {
+        async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::std::net::TcpStream) -> Result<(), Error> {
             let mut last_error = Ok(());
             let mut buf = String::default();
             for line in ::std::io::BufReader::new(&stream).lines() {
@@ -149,9 +149,8 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                 match &args[0][..] {
                     #(
                         #cmd_names => {
-                            let ctx_guard = ctx_arc.lock();
-                            let ctx = ctx_guard.as_ref().ok_or(Error::MissingContext)?;
-                            match #fn_names(ctx #(, args[#parse_args].parse::<#arg_types>().map_err(|e| Error::ArgParse(e.to_string()))?)*) {
+                            let ctx = ctx_fut.read().await;
+                            match #fn_names(&*ctx #(, args[#parse_args].parse::<#arg_types>().map_err(|e| Error::ArgParse(e.to_string()))?)*).await {
                                 Ok(()) => writeln!(&mut &stream, #cmd_names)?,
                                 Err(msg) => writeln!(&mut &stream, "{}", msg)?
                             }
@@ -163,18 +162,17 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             last_error
         }
 
-        pub fn listen(ctx_arc: ::std::sync::Arc<(::serenity_utils::parking_lot::Mutex<Option<::serenity::client::Context>>, ::serenity_utils::parking_lot::Condvar)>, notify_thread_crash: &impl Fn(&Option<::serenity::client::Context>, &str, Error)) -> Result<(), ::std::io::Error> { //TODO change return type to Result<!, ::std::io::Error>
-            {
-                // make sure Serenity context is available before accepting IPC connections
-                let (ref ctx_arc, ref cond) = *ctx_arc;
-                let mut ctx_guard = ctx_arc.lock(); //TODO async
-                if ctx_guard.is_none() {
-                    cond.wait(&mut ctx_guard); //TODO async
-                }
-            }
+        pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::serenity_utils::RwFuture<::serenity::client::Context>, String, Error) -> Fut) -> Result<(), ::std::io::Error> { //TODO change return type to Result<!, ::std::io::Error>
             for stream in ::std::net::TcpListener::bind(addr())?.incoming() {
-                if let Err(e) = stream.map_err(Error::Io).and_then(|stream| handle_client(&ctx_arc.0, stream)) {
-                    notify_thread_crash(&ctx_arc.0.lock(), "IPC client", e);
+                let stream = match stream.map_err(Error::Io) {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        notify_thread_crash(ctx_fut.clone(), format!("IPC client"), e).await;
+                        continue
+                    }
+                };
+                if let Err(e) = handle_client(&ctx_fut, stream).await {
+                    notify_thread_crash(ctx_fut.clone(), format!("IPC client"), e).await;
                 }
             }
             unreachable!();

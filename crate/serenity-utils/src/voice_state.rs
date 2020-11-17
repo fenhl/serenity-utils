@@ -1,19 +1,19 @@
-use std::{
-    collections::BTreeMap,
-    fs::File,
-    io,
-    path::PathBuf
-};
-use serenity::{
-    model::{
-        guild::Guild,
-        id::GuildId,
-        user::User,
-        voice::VoiceState
+use {
+    std::{
+        collections::BTreeMap,
+        fs::File,
+        io,
+        path::PathBuf,
     },
-    prelude::*
+    async_trait::async_trait,
+    serde_json::json,
+    serenity::{
+        model::prelude::*,
+        prelude::*,
+    },
+    typemap::Key,
+    crate::handler::EventHandlerRef,
 };
-use typemap::Key;
 
 /// `typemap` key for the voice state data to be serialized.
 pub struct VoiceStates;
@@ -55,8 +55,9 @@ impl VoiceStateExporter {
     }
 }
 
-impl EventHandler for VoiceStateExporter {
-    fn guild_create(&self, ctx: Context, guild: Guild, _: bool) {
+#[async_trait]
+impl EventHandlerRef for VoiceStateExporter {
+    async fn guild_create(&self, ctx: Context, guild: Guild, _: bool) {
         let mut chan_map = <VoiceStates as Key>::Value::default();
         for (user_id, voice_state) in guild.voice_states {
             if let Some(channel_id) = voice_state.channel_id {
@@ -69,15 +70,15 @@ impl EventHandler for VoiceStateExporter {
                 }
             }
         }
-        let mut data = ctx.data.lock();
+        let mut data = ctx.data.write().await;
         data.insert::<VoiceStates>(chan_map);
         let chan_map = data.get::<VoiceStates>().expect("missing voice states map");
         self.dump_info(chan_map).expect("failed to dump voice state");
     }
 
-    fn voice_state_update(&self, ctx: Context, _: Option<GuildId>, voice_state: VoiceState) {
+    async fn voice_state_update(&self, ctx: Context, _: Option<GuildId>, voice_state: VoiceState) {
         let user = voice_state.user_id.to_user().expect("failed to get user info");
-        let mut data = ctx.data.lock();
+        let mut data = ctx.data.write();
         let chan_map = data.get_mut::<VoiceStates>().expect("missing voice states map");
         let mut empty_channels = Vec::default();
         for (channel_name, users) in chan_map.iter_mut() {
@@ -90,7 +91,7 @@ impl EventHandler for VoiceStateExporter {
             chan_map.remove(&channel_name);
         }
         if let Some(channel_id) = voice_state.channel_id {
-            let users = chan_map.entry(channel_id.name().expect("failed to get channel name"))
+            let users = chan_map.entry(channel_id.name(&ctx).await.expect("failed to get channel name"))
                 .or_insert_with(Vec::default);
             match users.binary_search_by_key(&(user.name.clone(), user.discriminator), |user| (user.name.clone(), user.discriminator)) {
                 Ok(idx) => { users[idx] = user; }

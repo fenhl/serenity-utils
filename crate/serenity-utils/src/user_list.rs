@@ -1,28 +1,23 @@
-use std::{
-    collections::HashMap,
-    fs::{
-        self,
-        File
-    },
-    io::{
-        self,
-        prelude::*
-    },
-    path::PathBuf
-};
-use serenity::{
-    model::{
-        guild::{
-            Guild,
-            Member
+use {
+    std::{
+        collections::HashMap,
+        fs::{
+            self,
+            File,
         },
-        id::{
-            GuildId,
-            UserId
+        io::{
+            self,
+            prelude::*,
         },
-        user::User
+        path::PathBuf,
     },
-    prelude::*
+    async_trait::async_trait,
+    serde_json::json,
+    serenity::{
+        model::prelude::*,
+        prelude::*,
+    },
+    crate::handler::EventHandlerRef,
 };
 
 /// An `EventHandler` which maintains a list of known Discord users present in guilds shared with the bot in a given directory.
@@ -44,12 +39,11 @@ impl UserListExporter {
         if !guild_dir.exists() {
             fs::create_dir(&guild_dir)?;
         }
-        let user = member.user.read().clone();
-        let mut f = File::create(guild_dir.join(format!("{}.json", user.id)))?;
+        let mut f = File::create(guild_dir.join(format!("{}.json", member.user.id)))?;
         write!(f, "{:#}", json!({
-            "discriminator": user.discriminator,
-            "snowflake": user.id,
-            "username": user.name
+            "discriminator": member.user.discriminator,
+            "snowflake": member.user.id,
+            "username": member.user.name
         }))?;
         Ok(())
     }
@@ -84,13 +78,14 @@ impl UserListExporter {
     }
 }
 
-impl EventHandler for UserListExporter {
+#[async_trait]
+impl EventHandlerRef for UserListExporter {
     fn guild_ban_addition(&self, _: Context, guild_id: GuildId, user: User) {
         self.remove(guild_id, user).expect("failed to remove banned user from user list");
     }
 
-    fn guild_ban_removal(&self, _: Context, guild_id: GuildId, user: User) {
-        self.add(guild_id, guild_id.member(user).expect("failed to get unbanned guild member")).expect("failed to add unbanned user to user list");
+    async fn guild_ban_removal(&self, _: Context, guild_id: GuildId, user: User) {
+        self.add(guild_id, guild_id.member(user).expect("failed to get unbanned guild member")).await.expect("failed to add unbanned user to user list");
     }
 
     fn guild_create(&self, _: Context, guild: Guild, _: bool) {
