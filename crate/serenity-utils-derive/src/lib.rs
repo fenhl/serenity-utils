@@ -10,21 +10,50 @@ use {
         ItemConst,
         ItemFn,
         ItemUse,
+        Token,
         parse::{
+            Parse,
             ParseStream,
             Parser as _,
         },
     },
 };
 
-fn parser(input: ParseStream<'_>) -> Result<(ItemUse, ItemConst, Vec<ItemFn>), syn::Error> {
-    let uses = input.parse::<ItemUse>()?;
-    let port_const = input.parse::<ItemConst>()?;
+enum Port {
+    Const(ItemConst),
+    Fn(ItemFn),
+}
+
+impl Parse for Port {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Port> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![const]) {
+            input.parse().map(Port::Const)
+        } else if lookahead.peek(Token![fn]) {
+            input.parse().map(Port::Fn)
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
+impl quote::ToTokens for Port {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            Port::Const(item) => item.to_tokens(tokens),
+            Port::Fn(item) => item.to_tokens(tokens),
+        }
+    }
+}
+
+fn parser(input: ParseStream<'_>) -> syn::Result<(ItemUse, Port, Vec<ItemFn>)> {
+    let uses = input.parse()?;
+    let port = input.parse()?;
     let mut commands = vec![];
     while !input.is_empty() {
         commands.push(input.parse()?);
     }
-    Ok((uses, port_const, commands))
+    Ok((uses, port, commands))
 }
 
 #[proc_macro]
@@ -32,6 +61,18 @@ pub fn ipc(input: TokenStream) -> TokenStream {
     let (uses, port, commands) = match parser.parse(input) {
         Ok(commands) => commands,
         Err(e) => return e.to_compile_error().into()
+    };
+    let addr_fn = {
+        let port = match port {
+            Port::Const(ref item) => { let ident = &item.ident; quote!(#ident) }
+            Port::Fn(ref item) => { let ident = &item.sig.ident; quote!(#ident()) }
+        };
+        quote! {
+            /// The address and port where the bot listens for IPC commands.
+            fn addr() -> ::std::net::SocketAddr {
+                ::std::net::SocketAddr::from(([127, 0, 0, 1], #port))
+            }
+        }
     };
     let fn_names = commands.iter()
         .map(|cmd| &cmd.sig.ident)
@@ -120,10 +161,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             }
         }
 
-        /// The address and port where the bot listens for IPC commands.
-        fn addr() -> ::std::net::SocketAddr {
-            ::std::net::SocketAddr::from(([127, 0, 0, 1], PORT))
-        }
+        #addr_fn
 
         async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::serenity_utils::tokio::net::TcpStream) -> Result<(), Error> {
             let mut last_error = Ok(());
@@ -232,10 +270,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                /// The address and port where the bot listens for IPC commands.
-                fn addr() -> ::std::net::SocketAddr {
-                    ::std::net::SocketAddr::from(([127, 0, 0, 1], PORT))
-                }
+                #addr_fn
 
                 fn send(cmd: Vec<String>) -> Result<String, Error> {
                     let mut stream = ::std::net::TcpStream::connect(addr())?;
