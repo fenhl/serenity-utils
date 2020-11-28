@@ -1,20 +1,28 @@
 #![deny(missing_docs, rust_2018_idioms, unused, unused_import_braces, unused_qualifications, warnings)]
 
-//! This library provides wrapper implementations of `serenity::EventHandler`.
+//! This library provides functionality common to multiple [Discord](https://discord.com/) bots maintained by [Fenhl](https://github.com/fenhl).
 
 pub mod handler;
-//mod user_list; //TODO
+pub mod user_list;
 //mod voice_state; //TODO
 
 use {
     std::{
         future::Future,
         sync::Arc,
+        time::Duration,
     },
-    tokio::sync::{
-        RwLock,
-        RwLockReadGuard,
-        RwLockWriteGuard,
+    serenity::{
+        client::bridge::gateway::ShardManager,
+        prelude::*,
+    },
+    tokio::{
+        sync::{
+            RwLock,
+            RwLockReadGuard,
+            RwLockWriteGuard,
+        },
+        time::delay_for,
     },
 };
 pub use serenity_utils_derive::ipc;
@@ -112,4 +120,20 @@ impl<T: Send + Sync + Default> Default for RwFuture<T> {
     fn default() -> RwFuture<T> {
         RwFuture(Arc::new(RwLock::new(RwFutureData::Ready(T::default()))))
     }
+}
+
+/// A `typemap` key holding the [`ShardManager`]. Used in `shut_down`.
+pub struct ShardManagerContainer;
+
+impl TypeMapKey for ShardManagerContainer {
+    type Value = Arc<Mutex<ShardManager>>;
+}
+
+/// Utility function to shut down all shards.
+pub async fn shut_down(ctx: &Context) {
+    ctx.invisible().await; // hack to prevent the bot showing as online when it's not
+    let data = ctx.data.read().await;
+    let mut shard_manager = data.get::<ShardManagerContainer>().expect("missing shard manager").lock().await;
+    shard_manager.shutdown_all().await;
+    delay_for(Duration::from_secs(1)).await; // wait to make sure websockets can be closed cleanly
 }
