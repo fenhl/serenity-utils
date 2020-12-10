@@ -1,7 +1,5 @@
 #![deny(rust_2018_idioms, unused, unused_import_braces, unused_qualifications, warnings)]
 
-//extern crate proc_macro;
-
 use {
     proc_macro::TokenStream,
     quote::quote,
@@ -206,7 +204,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             last_error
         }
 
-        pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::serenity_utils::RwFuture<::serenity::client::Context>, String, Error) -> Fut) -> Result<(), ::std::io::Error> { //TODO change return type to Result<!, ::std::io::Error>
+        pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::serenity_utils::RwFuture<::serenity::client::Context>, String, Error) -> Fut) -> ::std::io::Result<::std::convert::Infallible> {
             let mut listener = ::serenity_utils::tokio::net::TcpListener::bind(addr()).await?;
             while let Some(stream) = listener.next().await {
                 let stream = match stream.map_err(Error::Io) {
@@ -220,7 +218,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     notify_thread_crash(ctx_fut.clone(), format!("IPC client"), e).await;
                 }
             }
-            unreachable!();
+            unreachable!()
         }
 
         /// Sends an IPC command to the bot.
