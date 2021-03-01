@@ -10,20 +10,30 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1"
-derive_more = "0.99" # used in proc macro
 futures = "0.3" # used in proc macro
 parking_lot = "0.11" # used in proc macro
 serde = "1"
 serde_json = "1"
-serenity = "0.9"
+serenity = "0.10"
+shlex = "1" # used in proc macro
 typemap = "0.3"
+
+[dependencies.derive_more] # used in proc macro
+version = "0.99"
+default-features = false
+features = ["from"]
 
 [dependencies.serenity-utils-derive]
 path = "../serenity-utils-derive"
 
-[dependencies.shlex] # used in proc macro
-git = "https://github.com/fenhl/rust-shlex"
-
 [dependencies.tokio]
-version = "0.2" #TODO upgrade to 0.3 once supported by serenity
-features = ["net", "sync", "time"]
+#version = "1" #TODO use crates.io version once e3f2dcf is released
+git = "https://github.com/tokio-rs/tokio"
+rev = "e3f2dcf5bc8315f01c8843259e78c8e98203a978"
+features = ["io-util", "net", "rt", "sync", "time"]
+
+[dependencies.tokio-stream] # used in proc macro
+#version = "0.1" #TODO use crates.io version once e3f2dcf is released
+git = "https://github.com/tokio-rs/tokio"
+rev = "e3f2dcf5bc8315f01c8843259e78c8e98203a978"
+features = ["io-util", "net"]

@@ -19,10 +19,11 @@ use {
     tokio::{
         sync::{
             RwLock,
+            RwLockMappedWriteGuard,
             RwLockReadGuard,
             RwLockWriteGuard,
         },
-        time::delay_for,
+        time::sleep,
     },
 };
 pub use serenity_utils_derive::ipc;
@@ -39,6 +40,7 @@ pub use crate::{
     serenity,
     shlex,
     tokio,
+    tokio_stream,
 }; // used in proc macro
 
 #[derive(Debug)]
@@ -99,7 +101,7 @@ impl<T: Send + Sync + 'static> RwFuture<T> {
     }
 
     /// Waits until the value is available, then locks this `RwFuture` for write access.
-    pub async fn write(&self) -> RwLockWriteGuard<'_, T> {
+    pub async fn write(&self) -> RwLockMappedWriteGuard<'_, T> {
         let mut rx = {
             let data = self.0.write().await;
             match *data {
@@ -135,5 +137,5 @@ pub async fn shut_down(ctx: &Context) {
     let data = ctx.data.read().await;
     let mut shard_manager = data.get::<ShardManagerContainer>().expect("missing shard manager").lock().await;
     shard_manager.shutdown_all().await;
-    delay_for(Duration::from_secs(1)).await; // wait to make sure websockets can be closed cleanly
+    sleep(Duration::from_secs(1)).await; // wait to make sure websockets can be closed cleanly
 }

@@ -85,7 +85,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         .map(|cmd| cmd.sig.inputs.iter().skip(1).map(|arg| {
             let arg = match arg {
                 FnArg::Receiver(_) => panic!("IPC command can't have a `self` argument"), //TODO compile error instead of panic
-                FnArg::Typed(arg) => arg
+                FnArg::Typed(arg) => arg,
             };
             &arg.ty
         }).collect::<Vec<_>>())
@@ -99,7 +99,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             let untyped_args = cmd.sig.inputs.iter().skip(1).map(|arg| {
                 let arg = match arg {
                     FnArg::Receiver(_) => panic!("IPC command can't have a `self` argument"), //TODO compile error instead of panic
-                    FnArg::Typed(arg) => arg
+                    FnArg::Typed(arg) => arg,
                 };
                 &arg.pat
             }).collect::<Vec<_>>();
@@ -110,8 +110,8 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     if received != #cmd_name {
                         return Err(Error::WrongReply {
                             received,
-                            expected: format!(#cmd_name)
-                        });
+                            expected: format!(#cmd_name),
+                        })
                     }
                     Ok(())
                 }
@@ -121,8 +121,10 @@ pub fn ipc(input: TokenStream) -> TokenStream {
     TokenStream::from(quote! {
         use {
             ::std::io::prelude::*,
-            ::serenity_utils::futures::prelude::*,
-            ::serenity_utils::tokio::prelude::*,
+            ::serenity_utils::{
+                futures::prelude::*,
+                tokio::io::AsyncWriteExt as _,
+            },
         };
         #uses
 
@@ -140,7 +142,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             MissingNewline,
             /// Returned from `listen` if a command line was not valid shell lexer tokens.
             #[from(ignore)]
-            Shlex(::serenity_utils::shlex::Error, String),
+            Shlex(String),
             /// Returned from `listen` if an unknown command is received.
             #[from(ignore)]
             UnknownCommand(Vec<String>),
@@ -153,7 +155,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     Error::Io(e) => e.fmt(f),
                     Error::MissingContext => write!(f, "Serenity context not available before ready event"),
                     Error::MissingNewline => write!(f, "the reply to an IPC command did not end in a newline"),
-                    Error::Shlex(e, line) => write!(f, "failed to parse IPC command line: {}: {}", e, line),
+                    Error::Shlex(line) => write!(f, "failed to parse IPC command line: {}", line),
                     Error::UnknownCommand(args) => write!(f, "unknown command: {:?}", args),
                 }
             }
@@ -165,25 +167,25 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             let mut last_error = Ok(());
             let mut buf = String::default();
             let (reader, mut writer) = stream.into_split();
-            let mut lines = ::serenity_utils::tokio::io::AsyncBufReadExt::lines(::serenity_utils::tokio::io::BufReader::new(reader));
+            let mut lines = ::serenity_utils::tokio_stream::wrappers::LinesStream::new(::serenity_utils::tokio::io::AsyncBufReadExt::lines(::serenity_utils::tokio::io::BufReader::new(reader)));
             while let Some(line) = lines.next().await {
                 let line = match line {
                     Ok(line) => line,
                     Err(e) => if e.kind() == ::std::io::ErrorKind::ConnectionReset {
-                        break; // connection reset by peer, consider the IPC session terminated
+                        break // connection reset by peer, consider the IPC session terminated
                     } else {
-                        return Err(Error::Io(e));
+                        return Err(Error::Io(e))
                     }
                 };
                 buf.push_str(&line);
                 let args = match ::serenity_utils::shlex::split(&buf) {
-                    Ok(args) => {
+                    Some(args) => {
                         last_error = Ok(());
                         buf.clear();
                         args
                     }
-                    Err(e) => {
-                        last_error = Err(Error::Shlex(e, line));
+                    None => {
+                        last_error = Err(Error::Shlex(line));
                         buf.push('\n');
                         continue
                     }
@@ -205,7 +207,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         }
 
         pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::serenity_utils::RwFuture<::serenity::client::Context>, String, Error) -> Fut) -> ::std::io::Result<::std::convert::Infallible> {
-            let mut listener = ::serenity_utils::tokio::net::TcpListener::bind(addr()).await?;
+            let mut listener = ::serenity_utils::tokio_stream::wrappers::TcpListenerStream::new(::serenity_utils::tokio::net::TcpListener::bind(addr()).await?);
             while let Some(stream) = listener.next().await {
                 let stream = match stream.map_err(Error::Io) {
                     Ok(stream) => stream,
@@ -254,8 +256,8 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                         /// The expected reply.
                         expected: String,
                         /// The reply that was actually received.
-                        received: String
-                    }
+                        received: String,
+                    },
                 }
 
                 impl ::std::fmt::Display for Error {
@@ -263,7 +265,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                         match self {
                             Error::Io(e) => e.fmt(f),
                             Error::MissingNewline => write!(f, "the reply to an IPC command did not end in a newline"),
-                            Error::WrongReply { expected, received } => write!(f, "unexpected IPC command reply: expected {:?}, received {:?}", expected, received)
+                            Error::WrongReply { expected, received } => write!(f, "unexpected IPC command reply: expected {:?}, received {:?}", expected, received),
                         }
                     }
                 }

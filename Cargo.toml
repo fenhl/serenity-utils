@@ -1,3 +1,11 @@
 [workspace]
 members = ["crate/*"]
 default-members = ["crate/serenity-utils"]
+
+[patch.crates-io.tokio] #TODO remove once e3f2dcf is released
+git = "https://github.com/tokio-rs/tokio"
+rev = "e3f2dcf5bc8315f01c8843259e78c8e98203a978"
+
+[patch.crates-io.tokio-stream] #TODO remove once e3f2dcf is released
+git = "https://github.com/tokio-rs/tokio"
+rev = "e3f2dcf5bc8315f01c8843259e78c8e98203a978"
