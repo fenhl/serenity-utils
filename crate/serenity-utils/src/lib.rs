@@ -1,4 +1,4 @@
-#![deny(missing_docs, rust_2018_idioms, unused, unused_import_braces, unused_qualifications, warnings)]
+#![deny(missing_docs, rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_qualifications, warnings)]
 
 //! This library provides functionality common to multiple [Discord](https://discord.com/) bots maintained by [Fenhl](https://github.com/fenhl).
 
