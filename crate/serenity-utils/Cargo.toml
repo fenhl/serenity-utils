@@ -26,7 +26,13 @@ path = "../serenity-utils-derive"
 
 [dependencies.tokio]
 version = "1.3"
-features = ["io-util", "net", "rt", "sync", "time"]
+features = [
+    "io-util",
+    "net",
+    "rt-multi-thread", # used in proc macro
+    "sync",
+    "time",
+]
 
 [dependencies.tokio-stream] # used in proc macro
 version = "0.1"

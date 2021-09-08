@@ -2,10 +2,6 @@
 
 //! This library provides functionality common to multiple [Discord](https://discord.com/) bots maintained by [Fenhl](https://github.com/fenhl).
 
-pub mod handler;
-pub mod user_list;
-//mod voice_state; //TODO
-
 use {
     std::{
         future::Future,
@@ -26,7 +22,13 @@ use {
         time::sleep,
     },
 };
-pub use serenity_utils_derive::ipc;
+pub use {
+    serenity_utils_derive::{
+        ipc,
+        main,
+    },
+    crate::builder::Builder,
+};
 /*
 pub use crate::{
     user_list::UserListExporter,
@@ -42,6 +44,11 @@ pub use crate::{
     tokio,
     tokio_stream,
 }; // used in proc macro
+
+pub mod builder;
+pub mod handler;
+pub mod user_list;
+//mod voice_state; //TODO
 
 #[derive(Debug)]
 enum RwFutureData<T: Send + Sync> {
@@ -129,6 +136,13 @@ pub struct ShardManagerContainer;
 
 impl TypeMapKey for ShardManagerContainer {
     type Value = Arc<Mutex<ShardManager>>;
+}
+
+/// Creates a builder for setting up and running a bot.
+///
+/// An advantage of using this compared to constructing a [`Client`] manually is that the bot will automatically request the required intents.
+pub async fn builder(token: String) -> serenity::Result<Builder> {
+    Builder::new(token).await
 }
 
 /// Utility function to shut down all shards.

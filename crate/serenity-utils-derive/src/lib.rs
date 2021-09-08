@@ -2,18 +2,34 @@
 
 use {
     proc_macro::TokenStream,
-    quote::quote,
+    quote::{
+        quote,
+        quote_spanned,
+    },
     syn::{
+        AttributeArgs,
         FnArg,
         ItemConst,
         ItemFn,
         ItemUse,
+        Lit,
+        Meta,
+        MetaNameValue,
+        NestedMeta,
+        Path,
+        PathArguments,
+        ReturnType,
         Token,
+        Type,
+        TypePath,
         parse::{
             Parse,
             ParseStream,
             Parser as _,
         },
+        parse_macro_input,
+        parse_quote,
+        spanned::Spanned as _,
     },
 };
 
@@ -161,6 +177,8 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             }
         }
 
+        impl ::std::error::Error for Error {}
+
         #addr_fn
 
         async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::serenity_utils::tokio::net::TcpStream) -> Result<(), Error> {
@@ -206,18 +224,18 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             last_error
         }
 
-        pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::serenity_utils::RwFuture<::serenity::client::Context>, String, Error) -> Fut) -> ::std::io::Result<::std::convert::Infallible> {
+        pub async fn listen<Fut: ::std::future::Future<Output = ()>>(ctx_fut: ::serenity_utils::RwFuture<::serenity::client::Context>, notify_thread_crash: &impl Fn(::std::string::String, Box<dyn ::std::error::Error + ::core::marker::Send + 'static>, ::core::option::Option<::core::time::Duration>) -> Fut) -> ::std::io::Result<::std::convert::Infallible> {
             let mut listener = ::serenity_utils::tokio_stream::wrappers::TcpListenerStream::new(::serenity_utils::tokio::net::TcpListener::bind(addr()).await?);
             while let Some(stream) = listener.next().await {
                 let stream = match stream.map_err(Error::Io) {
                     Ok(stream) => stream,
                     Err(e) => {
-                        notify_thread_crash(ctx_fut.clone(), format!("IPC client"), e).await;
+                        notify_thread_crash(format!("IPC client"), Box::new(e), None).await;
                         continue
                     }
                 };
                 if let Err(e) = handle_client(&ctx_fut, stream).await {
-                    notify_thread_crash(ctx_fut.clone(), format!("IPC client"), e).await;
+                    notify_thread_crash(format!("IPC client"), Box::new(e), None).await;
                 }
             }
             unreachable!()
@@ -285,6 +303,104 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                     #client_fns
                 )*
             };
+        }
+    })
+}
+
+#[proc_macro_attribute]
+pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(args as AttributeArgs);
+    let mut ipc_mod = None;
+    for arg in args {
+        if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { ref path, ref lit, .. })) = arg {
+            if let Some(ident) = path.get_ident() {
+                match &*ident.to_string() {
+                    "ipc" => if let Lit::Str(lit) = lit {
+                        match lit.parse::<Path>() {
+                            Ok(code) => ipc_mod = Some(code),
+                            Err(e) => return e.to_compile_error().into(),
+                        }
+                    } else {
+                        return quote_spanned! {lit.span()=>
+                            compile_error!("the path to the IPC module must be quoted as a string literal");
+                        }.into()
+                    },
+                    _ => return quote_spanned! {arg.span()=>
+                        compile_error!("unexpected serenity_utils::main attribute argument");
+                    }.into(),
+                }
+                continue
+            }
+        }
+        return quote_spanned! {arg.span()=>
+            compile_error!("unexpected serenity_utils::main attribute argument");
+        }.into()
+    }
+    let main_fn = parse_macro_input!(item as ItemFn);
+    let inner_ret = &main_fn.sig.output;
+    let inner_body = main_fn.block;
+    let (wrapper_ret, builder_expr) = match main_fn.sig.output {
+        ReturnType::Default => return quote_spanned! {main_fn.sig.span()=>
+            compile_error!("#[serenity_utils::main] must return a serenity_utils::Builder");
+        }.into(),
+        ReturnType::Type(rarrow, ref ty) => match **ty {
+            Type::Path(ref type_path @ TypePath { qself: None, path: Path { ref segments, .. } }) // feature(bindings_after_at) stabilized in Rust 1.56, hits beta 2021-09-09, stable 2021-10-21
+            if segments.len() == 1 && segments[0].ident == "Result" => {
+                let mut type_path = type_path.clone();
+                match type_path.path.segments[0].arguments {
+                    PathArguments::AngleBracketed(ref mut args) => args.args[0] = parse_quote!(()),
+                    _ => return quote_spanned! {main_fn.sig.span()=>
+                        compile_error!("missing type parameters for Result in #[serenity_utils::main] return type");
+                    }.into(),
+                }
+                (ReturnType::Type(rarrow, Box::new(Type::Path(type_path))), quote!(main_inner().await?))
+            }
+            _ => (parse_quote!(-> ::serenity_utils::serenity::Result<()>), quote!(main_inner().await)),
+        },
+    };
+    let wrapper_body = if let Some(ipc_mod) = ipc_mod {
+        quote!({
+            let mut args = ::std::env::args()
+                .skip(1) // ignore executable name
+                .peekable();
+            if args.peek().is_some() {
+                println!("{}", #ipc_mod::send(args)?);
+                Ok(())
+            } else {
+                let mut builder = #builder_expr;
+                if builder.has_ctx_fut() {
+                    // listen for IPC commands
+                    builder = builder.task(|ctx_fut, notify_thread_crash| async move {
+                        match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
+                            Ok(never) => match never {},
+                            Err(e) => {
+                                eprintln!("{}", e);
+                                notify_thread_crash(format!("IPC"), Box::new(e), None).await;
+                            }
+                        }
+                    });
+                }
+                builder.run().await?;
+                ::core::result::Result::Ok(())
+            }
+        })
+    } else {
+        quote!({
+            let builder = #builder_expr;
+            builder.run().await?;
+            ::core::result::Result::Ok(())
+        })
+    };
+    TokenStream::from(quote! {
+        async fn main_inner() #inner_ret #inner_body
+
+        fn main() #wrapper_ret {
+            ::serenity_utils::tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build().expect("failed to set up tokio runtime in serenity_utils::main")
+                .block_on(async {
+                    #wrapper_body
+                })
         }
     })
 }
