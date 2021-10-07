@@ -78,7 +78,7 @@ impl<T: Send + Sync + 'static> RwFuture<T> {
         tokio::spawn(async move {
             let value = fut.await;
             *data_clone.write().await = RwFutureData::Ready(value);
-            tx.send(()).expect("failed to notify RwFuture waiters");
+            let _ = tx.send(()); // an error just means no one's listening, which is fine
         });
         RwFuture(data)
     }
