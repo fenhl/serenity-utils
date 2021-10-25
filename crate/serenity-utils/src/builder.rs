@@ -28,13 +28,20 @@ use {
         prelude::*,
     },
     tokio::time::sleep,
-    crate::RwFuture,
+    crate::{
+        RwFuture,
+        handler::{
+            self,
+            Handler,
+            HandlerMethods,
+        },
+    },
 };
 
 /// Select where to notify about errors, e.g. in [`task`](Builder::task)s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorNotifier {
-    /// Write the error to standard error.
+    /// Write the error to standard error. This is the default.
     Stderr,
     /// Post in a Discord channel.
     Channel(ChannelId),
@@ -43,7 +50,7 @@ pub enum ErrorNotifier {
 }
 
 impl ErrorNotifier {
-    async fn say(&self, ctx: &Context, msg: String) -> serenity::Result<()> {
+    pub(crate) async fn say(&self, ctx: &Context, msg: String) -> serenity::Result<()> {
         match self {
             ErrorNotifier::Stderr => eprintln!("{}", msg),
             ErrorNotifier::Channel(channel) => { channel.say(ctx, msg).await?; }
@@ -76,6 +83,7 @@ pub struct Builder {
     client: ClientBuilder<'static>,
     ctx_fut: Option<RwFuture<Context>>,
     framework: StandardFramework,
+    handler: Option<Handler>,
     intents: GatewayIntents,
 }
 
@@ -101,9 +109,13 @@ impl Builder {
                         let _ = msg.reply(ctx, &format!("an error occurred while handling your command: {:?}", why)).await;
                     }
                 })),
+            handler: None,
             intents: GatewayIntents::empty(),
         };
-        Ok(builder.unrecognized_message("sorry, I don't understand that message"))
+        builder
+            .error_notifier(ErrorNotifier::Stderr)
+            .unrecognized_message("sorry, I don't understand that message")
+            .ok()
     }
 
     /// Inserts a value into [`Context::data`].
@@ -120,12 +132,13 @@ impl Builder {
     }
 
     /// Adds command handling with a useful default configuration.
-    pub async fn commands(mut self, prefix: Option<&str>, commands: &'static CommandGroup) -> serenity::Result<Self> {
+    pub fn commands(mut self, prefix: Option<&str>, commands: &'static CommandGroup) -> Self {
         #[help]
         async fn help(ctx: &Context, msg: &Message, args: Args, help_options: &'static HelpOptions, groups: &[&'static CommandGroup], owners: HashSet<UserId>) -> CommandResult {
             let _ = help_commands::with_embeds(ctx, msg, args, help_options, groups, owners).await;
             Ok(())
         }
+
         if let Some(prefix) = prefix {
             self.framework = self.framework.configure(|c| c.prefix(prefix));
         }
@@ -133,7 +146,7 @@ impl Builder {
             .help(&HELP)
             .group(commands);
         self.intents |= GatewayIntents::DIRECT_MESSAGES | GatewayIntents::GUILD_MESSAGES;
-        Ok(self)
+        self
     }
 
     /// Sets the reply content for unrecognized messages in DMs.
@@ -169,9 +182,20 @@ impl Builder {
         self
     }
 
+    /// Adds an event handler.
+    ///
+    /// This can be called multiple times and/or combined with [`HandlerMethods`] trait methods; all methods are called in the order they were added.
+    pub fn event_handler(self, handler: Handler) -> Self {
+        self.edit_handler(|mut my_handler| {
+            my_handler.merge(handler);
+            my_handler
+        })
+    }
+
     /// Directly sets the `serenity` event handler for the bot.
     ///
     /// Since the intents used by the event handler cannot be determined, they must be specified explicitly.
+    #[deprecated]
     pub fn raw_event_handler(mut self, handler: impl EventHandler + 'static, intents: GatewayIntents) -> Self {
         self.client = self.client.event_handler(handler);
         self.intents |= intents;
@@ -181,6 +205,7 @@ impl Builder {
     /// Directly sets the `serenity` event handler for the bot.
     ///
     /// Since the intents used by the event handler cannot be determined, they must be specified explicitly.
+    #[deprecated]
     pub fn raw_event_handler_with_ctx<H: EventHandler + 'static, F: FnOnce() -> (H, RwFuture<Context>)>(mut self, make_handler: F, intents: GatewayIntents) -> Self { //TODO also provide a method to register a serenity-utils event handler (with automatic intents and ctx_fut handling)
         let (handler, ctx_fut) = make_handler();
         self.client = self.client.event_handler(handler);
@@ -215,11 +240,18 @@ impl Builder {
         self
     }
 
+    /// Convenience method wrapping `self` in [`Ok`] which can be used at the end of a method call chain.
+    pub fn ok<E>(self) -> Result<Self, E> { Ok(self) }
+
     #[doc(hidden)] pub fn has_ctx_fut(&self) -> bool {
         self.ctx_fut.is_some()
     }
 
-    #[doc(hidden)] pub async fn run(self) -> serenity::Result<()> { // used in `serenity_utils::main`
+    #[doc(hidden)] pub async fn run(mut self) -> serenity::Result<()> { // used in `serenity_utils::main`
+        if let Some(handler) = self.handler {
+            self.intents |= handler.intents;
+            self.client = self.client.event_handler(handler);
+        }
         let mut client = self.client
             .framework(self.framework)
             .intents(self.intents)
@@ -231,5 +263,58 @@ impl Builder {
         client.start_autosharded().await?;
         sleep(Duration::from_secs(1)).await; // wait to make sure websockets can be closed cleanly
         Ok(())
+    }
+
+    fn edit_handler(mut self, f: impl FnOnce(Handler) -> Handler) -> Self {
+        if let Some(handler) = self.handler {
+            self.handler = Some(f(handler));
+        } else {
+            let (handler, ctx_fut) = Handler::new_with_ctx();
+            self.handler = Some(f(handler));
+            self.ctx_fut = Some(ctx_fut);
+        }
+        self
+    }
+}
+
+impl HandlerMethods for Builder {
+    fn on_ready(self, f: for<'r> fn(&'r Context, &'r Ready) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_ready(f))
+    }
+
+    fn on_guild_ban_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_ban_addition(f))
+    }
+
+    fn on_guild_ban_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_ban_removal(f))
+    }
+
+    fn on_guild_create(self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, bool) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_create(require_members, f))
+    }
+
+    fn on_guild_member_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r Member) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_member_addition(f))
+    }
+
+    fn on_guild_member_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_member_removal(f))
+    }
+
+    fn on_guild_member_update(self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_member_update(f))
+    }
+
+    fn on_guild_members_chunk(self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_guild_members_chunk(f))
+    }
+
+    fn on_message(self, f: for<'r> fn(&'r Context, &'r Message) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_message(f))
+    }
+
+    fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<GuildId>, Option<&'r VoiceState>, &'r VoiceState) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.on_voice_state_update(f))
     }
 }

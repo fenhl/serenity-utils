@@ -344,7 +344,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             compile_error!("#[serenity_utils::main] must return a serenity_utils::Builder");
         }.into(),
         ReturnType::Type(rarrow, ref ty) => match **ty {
-            Type::Path(ref type_path @ TypePath { qself: None, path: Path { ref segments, .. } }) // feature(bindings_after_at) stabilized in Rust 1.56, hits beta 2021-09-09, stable 2021-10-21
+            Type::Path(ref type_path @ TypePath { qself: None, path: Path { ref segments, .. } })
             if segments.len() == 1 && segments[0].ident == "Result" => {
                 let mut type_path = type_path.clone();
                 match type_path.path.segments[0].arguments {

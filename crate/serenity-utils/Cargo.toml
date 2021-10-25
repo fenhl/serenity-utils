@@ -1,18 +1,16 @@
 [package]
 name = "serenity-utils"
-version = "0.3.3"
+version = "0.4.0"
 authors = ["Fenhl <fenhl@fenhl.net>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "serenity_utils"
 path = "src/lib.rs"
 
 [dependencies]
-async-trait = "0.1"
 futures = "0.3" # used in proc macro
 parking_lot = "0.11" # used in proc macro
-serde_json = "1"
 serenity = "0.10"
 shlex = "1" # used in proc macro
 
@@ -22,6 +20,7 @@ default-features = false
 features = ["from"]
 
 [dependencies.serenity-utils-derive]
+version = "=0.4.0"
 path = "../serenity-utils-derive"
 
 [dependencies.tokio]

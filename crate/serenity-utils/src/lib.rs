@@ -29,12 +29,6 @@ pub use {
     },
     crate::builder::Builder,
 };
-/*
-pub use crate::{
-    user_list::UserListExporter,
-    voice_state::VoiceStateExporter,
-};
-*/ //TODO
 #[doc(hidden)] pub use {
     derive_more,
     futures,
@@ -47,8 +41,6 @@ pub use crate::{
 
 pub mod builder;
 pub mod handler;
-pub mod user_list;
-//mod voice_state; //TODO
 
 #[derive(Debug)]
 enum RwFutureData<T: Send + Sync> {
