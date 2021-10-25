@@ -206,7 +206,7 @@ impl Builder {
     ///
     /// Since the intents used by the event handler cannot be determined, they must be specified explicitly.
     #[deprecated]
-    pub fn raw_event_handler_with_ctx<H: EventHandler + 'static, F: FnOnce() -> (H, RwFuture<Context>)>(mut self, make_handler: F, intents: GatewayIntents) -> Self { //TODO also provide a method to register a serenity-utils event handler (with automatic intents and ctx_fut handling)
+    pub fn raw_event_handler_with_ctx<H: EventHandler + 'static, F: FnOnce() -> (H, RwFuture<Context>)>(mut self, make_handler: F, intents: GatewayIntents) -> Self {
         let (handler, ctx_fut) = make_handler();
         self.client = self.client.event_handler(handler);
         self.ctx_fut = Some(ctx_fut);
