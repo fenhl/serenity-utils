@@ -138,11 +138,13 @@ impl HandlerMethods for Handler {
     }
 
     fn on_message(mut self, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self {
+        self.intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES; //TODO allow customizing which to receive?
         self.message.push(f);
         self
     }
 
     fn on_voice_state_update(mut self, f: for<'r> fn(&'r Context, Option<GuildId>, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self {
+        self.intents |= GatewayIntents::GUILD_VOICE_STATES;
         self.voice_state_update.push(f);
         self
     }
