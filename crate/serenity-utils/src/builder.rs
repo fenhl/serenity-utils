@@ -92,10 +92,10 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub(crate) async fn new(token: String) -> serenity::Result<Self> {
+    pub(crate) async fn new(app_id: u64, token: String) -> serenity::Result<Self> {
         let app_info = Http::new_with_token(&token).get_current_application_info().await?;
         let builder = Self {
-            client: Client::builder(&token),
+            client: Client::builder(&token).application_id(app_id),
             ctx_fut: None,
             framework: StandardFramework::new()
                 .configure(|c| c
