@@ -26,12 +26,14 @@ pub use {
     serenity_utils_derive::{
         ipc,
         main,
+        slash_command,
     },
     crate::builder::Builder,
 };
 #[doc(hidden)] pub use {
     derive_more,
     futures,
+    inventory,
     parking_lot,
     serenity,
     shlex,

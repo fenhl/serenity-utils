@@ -1,7 +1,13 @@
+//! Procedural macros for the `serenity-utils` crate.
+
 #![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_qualifications, warnings)]
 
 use {
+    std::ops::RangeInclusive,
+    if_chain::if_chain,
+    itertools::Itertools as _,
     proc_macro::TokenStream,
+    proc_macro2::Span,
     quote::{
         quote,
         quote_spanned,
@@ -9,19 +15,27 @@ use {
     syn::{
         AttributeArgs,
         FnArg,
+        Ident,
         ItemConst,
         ItemFn,
         ItemUse,
         Lit,
+        LitInt,
+        LitStr,
         Meta,
+        MetaList,
         MetaNameValue,
         NestedMeta,
+        Pat,
+        PatIdent,
+        PatType,
         Path,
         PathArguments,
         ReturnType,
         Token,
         Type,
         TypePath,
+        TypeReference,
         parse::{
             Parse,
             ParseStream,
@@ -29,6 +43,7 @@ use {
         },
         parse_macro_input,
         parse_quote,
+        punctuated::Punctuated,
         spanned::Spanned as _,
     },
 };
@@ -307,6 +322,214 @@ pub fn ipc(input: TokenStream) -> TokenStream {
     })
 }
 
+enum SlashCommandDirective {
+    Description(String),
+    Range(RangeInclusive<i32>),
+}
+
+impl Parse for SlashCommandDirective {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let kind = input.parse::<Ident>()?;
+        input.parse::<Token![=]>()?;
+        Ok(match &*kind.to_string() {
+            "description" => Self::Description(input.parse::<LitStr>()?.value()),
+            "range" => {
+                let lower = input.parse::<LitInt>()?.base10_parse()?;
+                input.parse::<Token![..=]>()?;
+                let upper = input.parse::<LitInt>()?.base10_parse()?;
+                Self::Range(lower..=upper)
+            }
+            _ => return Err(syn::Error::new(kind.span(), "unknown slash command directive")),
+        })
+    }
+}
+
+#[proc_macro_attribute]
+pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
+    let mut args = parse_macro_input!(args as AttributeArgs);
+    let guild_id = args.remove(0);
+    let mut perms = quote!(::serenity_utils::slash::CommandPermissions::default());
+    for arg in args {
+        if_chain! {
+            if let NestedMeta::Meta(Meta::List(MetaList { ref path, ref nested, .. })) = arg;
+            if path.is_ident("allow");
+            then {
+                for perm in nested {
+                    perms = quote!((#perms | #perm));
+                }
+            } else {
+                return quote_spanned! {arg.span()=>
+                    compile_error!("unexpected #[serenity_utils::slash_command] argument");
+                }.into()
+            }
+        }
+    }
+    let mut cmd_fn = parse_macro_input!(item as ItemFn);
+    let name_ident = &cmd_fn.sig.ident;
+    let name = name_ident.to_string();
+    let description = if let Ok(doc_comment) = cmd_fn.attrs.iter().filter(|attr| attr.path.is_ident("doc")).exactly_one() {
+        match doc_comment.parse_meta() {
+            Ok(Meta::NameValue(MetaNameValue { lit: Lit::Str(comment), .. })) => quote!(setup.description(#comment);),
+            Ok(_) => return quote_spanned! {doc_comment.span()=>
+                compile_error!("unexpected format for doc comment");
+            }.into(),
+            Err(e) => return e.into_compile_error().into(),
+        }
+    } else {
+        quote!()
+    };
+    let mut create_options = Vec::default();
+    let mut fn_args = Vec::default();
+    for arg in &mut cmd_fn.sig.inputs {
+        match arg {
+            FnArg::Typed(PatType { attrs, pat, ty, .. }) => {
+                let opt_name = if let Pat::Ident(PatIdent { ref ident, .. }) = **pat {
+                    Some(ident.to_string())
+                } else {
+                    None
+                };
+                let mut range_check = quote!(true);
+                let mut create_option = Vec::default();
+                //TODO use Vec::drain_filter when stabilized
+                let mut i = 0;
+                while i < attrs.len() {
+                    if attrs[i].path.is_ident("serenity_utils") {
+                        match attrs.remove(i).parse_args_with(Punctuated::<SlashCommandDirective, Token![,]>::parse_terminated) {
+                            Ok(directives) => for directive in directives {
+                                match directive {
+                                    SlashCommandDirective::Description(desc) => create_option.push(quote!(opt.description(#desc);)),
+                                    SlashCommandDirective::Range(range) => {
+                                        let lower = i64::from(*range.start());
+                                        let upper = i64::from(*range.end());
+                                        range_check = quote!((#lower..=#upper).contains(&n));
+                                        for n in range {
+                                            let n_str = n.to_string();
+                                            create_option.push(quote!(opt.add_int_choice(#n_str, #n);));
+                                        }
+                                    }
+                                }
+                            },
+                            Err(e) => return e.into_compile_error().into(),
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
+                let (register_option, fn_arg) = loop { //HACK: use a loop with multiple if chains breaking out of it to avoid multiple or nested else clauses
+                    if_chain! {
+                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
+                        if path.is_ident("Member");
+                        then {
+                            break (false, quote!(if let Some(member) = interaction.member {
+                                member
+                            } else {
+                                interaction.create_interaction_response(ctx, |resp| resp
+                                    .interaction_response_data(|data| data
+                                        .content("This command only works in a server.")
+                                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
+                                    )
+                                ).await?;
+                                return ::core::result::Result::Ok(())
+                            }))
+                        }
+                    }
+                    if_chain! {
+                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
+                        if path.is_ident("i64");
+                        then {
+                            let opt_name = if let Some(ref opt_name) = opt_name {
+                                opt_name
+                            } else {
+                                return quote_spanned! {pat.span()=>
+                                    compile_error!("slash command option must be named");
+                                }.into()
+                            };
+                            create_option.push(quote!(opt.kind(ApplicationCommandOptionType::Integer)));
+                            create_option.push(quote!(opt.required(true)));
+                            break (true, quote!({
+                                let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
+                                if let ::serenity_utils::slash::ApplicationCommandInteractionDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::ApplicationCommandInteractionDataOptionValue::Integer(n)), .. } = option {
+                                    if name == #opt_name {
+                                        if #range_check {
+                                            n
+                                        } else {
+                                            return ::core::result::Result::Err(::serenity_utils::slash::ParseError::IntegerRange.into())
+                                        }
+                                    } else {
+                                        return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionName.into())
+                                    }
+                                } else {
+                                    return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionType.into())
+                                }
+                            }))
+                        }
+                    }
+                    if_chain! {
+                        if let Type::Reference(TypeReference { mutability: None, ref elem, .. }) = **ty;
+                        if let Type::Path(TypePath { qself: None, ref path }) = **elem;
+                        if path.is_ident("Context");
+                        then {
+                            break (false, quote!(ctx))
+                        }
+                    }
+                    return quote_spanned! {ty.span()=>
+                        compile_error!("unsupported argument type for slash command");
+                    }.into()
+                };
+                fn_args.push(fn_arg);
+                if register_option {
+                    let opt_name = if let Some(opt_name) = opt_name {
+                        opt_name
+                    } else {
+                        return quote_spanned! {pat.span()=>
+                            compile_error!("slash command option must be named");
+                        }.into()
+                    };
+                    create_option.push(quote!(opt.name(#opt_name);));
+                    create_options.push(create_option);
+                }
+            }
+            FnArg::Receiver(_) => return quote_spanned! {arg.span()=>
+                compile_error!("slash commands can't take `self`");
+            }.into(),
+        }
+    }
+    let wrapper_name = Ident::new(&format!("{}_wrapper", name), Span::call_site());
+    TokenStream::from(quote! {
+        use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
+
+        #cmd_fn
+
+        fn #wrapper_name(ctx: &Context, mut interaction: ::serenity_utils::slash::ApplicationCommandInteraction) -> ::core::pin::Pin<::std::boxed::Box<dyn ::core::future::Future<Output = ::core::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Send + ::core::marker::Sync>>> + ::core::marker::Send + '_>> {
+            ::std::boxed::Box::pin(async move {
+                let fut = #name_ident(#(#fn_args,)*);
+                //TODO make sure no extra options are passed
+                fut.await.map_err(::std::boxed::Box::from)
+            })
+        }
+
+        inventory::submit! {
+            let mut setup = ::serenity_utils::serenity::builder::CreateApplicationCommand::default();
+            setup.name(#name);
+            setup.default_permission(false);
+            #description
+            #(
+                setup.create_option(|opt| {
+                    #(#create_options)*
+                    opt
+                });
+            )*
+            ::serenity_utils::slash::Command {
+                guild_id: #guild_id,
+                name: #name,
+                perms: #perms,
+                setup,
+                handle: #wrapper_name,
+            }
+        }
+    })
+}
+
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as AttributeArgs);
@@ -380,6 +603,9 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                         }
                     });
                 }
+                for cmd in inventory::iter::<::serenity_utils::slash::Command> {
+                    builder = ::serenity_utils::handler::HandlerMethods::slash_command(builder, cmd.clone());
+                }
                 builder.run().await?;
                 ::core::result::Result::Ok(())
             }
@@ -392,6 +618,8 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         })
     };
     TokenStream::from(quote! {
+        use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
+
         async fn main_inner() #inner_ret #inner_body
 
         fn main() #wrapper_ret {

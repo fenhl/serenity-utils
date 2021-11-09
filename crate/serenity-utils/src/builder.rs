@@ -10,7 +10,6 @@ use {
         time::Duration,
     },
     serenity::{
-        builder::CreateApplicationCommand,
         client::{
             ClientBuilder,
             bridge::gateway::GatewayIntents,
@@ -25,10 +24,7 @@ use {
             macros::help,
         },
         http::Http,
-        model::{
-            interactions::application_command::ApplicationCommandInteraction,
-            prelude::*,
-        },
+        model::prelude::*,
         prelude::*,
     },
     tokio::time::sleep,
@@ -282,8 +278,8 @@ impl Builder {
 }
 
 impl HandlerMethods for Builder {
-    fn slash_command(self, guild_id: GuildId, name: impl ToString, perms: crate::slash::CommandPermissions, setup: impl FnOnce(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand, handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> handler::Output<'r>) -> Self {
-        self.edit_handler(|handler| handler.slash_command(guild_id, name, perms, setup, handle))
+    fn slash_command(self, cmd: crate::slash::Command) -> Self {
+        self.edit_handler(|handler| handler.slash_command(cmd))
     }
 
     fn on_ready(self, f: for<'r> fn(&'r Context, &'r Ready) -> handler::Output<'r>) -> Self {

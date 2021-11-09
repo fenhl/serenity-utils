@@ -1,21 +1,47 @@
 //! Utilities for working with [slash commands, also known as application commands](https://discord.com/developers/docs/interactions/application-commands).
 
 use {
-    std::ops::BitOr,
-    serenity::model::prelude::*,
+    std::{
+        fmt,
+        ops::BitOr,
+    },
+    serenity::{
+        builder::CreateApplicationCommand,
+        model::prelude::*,
+        prelude::*,
+    },
 };
-pub use serenity::model::interactions::application_command::{
-    ApplicationCommandInteractionDataOption,
-    ApplicationCommandInteractionDataOptionValue,
-    ApplicationCommandOptionType,
-};
+pub use serenity::model::interactions::application_command::*;
+
+/// A slash command.
+///
+/// Usually constructed using [`serenity_utils::slash_command`](serenity_utils_derive::slash_command).
+#[derive(Clone)]
+pub struct Command {
+    /// The guild for which this command will be registered.
+    ///
+    /// Global slash commands are currently unsupported.
+    pub guild_id: GuildId,
+    /// The command name. Must be unique for this application and guild.
+    pub name: &'static str,
+    /// The permissions that will be set up for the command.
+    pub perms: CommandPermissions,
+    /// The command will be created with these options. The `name` must be set here.
+    ///
+    /// If it already exists, these options will override the existing ones.
+    pub setup: CreateApplicationCommand,
+    /// The function to be called when the command is used.
+    pub handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> crate::handler::Output<'r>,
+}
+
+inventory::collect!(Command);
 
 /// Specifies who has permission to call a slash command.
 ///
 /// Passed as a parameter to [`Builder::slash_command`](crate::Builder::).
 ///
 /// By [`default`](Self::default), no one is allowed to use the command.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CommandPermissions {
     pub(crate) roles: Vec<RoleId>,
     pub(crate) users: Vec<UserId>,
@@ -49,3 +75,23 @@ impl<R: Into<Self>> BitOr<R> for CommandPermissions {
         self
     }
 }
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub enum ParseError { // used in proc macro
+    IntegerRange,
+    OptionName,
+    OptionType,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IntegerRange => write!(f, "integer option out of range"),
+            Self::OptionName => write!(f, "unexpected option name"),
+            Self::OptionType => write!(f, "unexpected option type"),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}

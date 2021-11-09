@@ -7,16 +7,10 @@ use {
         sync::Arc,
     },
     serenity::{
-        builder::{
-            CreateApplicationCommand,
-            CreateApplicationCommandsPermissions,
-        },
+        builder::CreateApplicationCommandsPermissions,
         client::bridge::gateway::GatewayIntents,
         model::{
-            interactions::application_command::{
-                ApplicationCommandInteraction,
-                ApplicationCommandPermissionType,
-            },
+            interactions::application_command::ApplicationCommandPermissionType,
             prelude::*,
         },
         prelude::*,
@@ -43,7 +37,7 @@ pub trait HandlerMethods {
     /// Adds a slash command.
     ///
     /// The command will be automatically created or updated each time the bot connects to Discord. Note that commands not specified will *not* be deleted.
-    fn slash_command(self, guild_id: GuildId, name: impl ToString, perms: crate::slash::CommandPermissions, setup: impl FnOnce(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand, handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>) -> Self;
+    fn slash_command(self, cmd: crate::slash::Command) -> Self;
 
     fn on_ready(self, f: for<'r> fn(&'r Context, &'r Ready) -> Output<'r>) -> Self;
     fn on_guild_ban_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
@@ -63,7 +57,7 @@ pub trait HandlerMethods {
 #[derive(Default)]
 pub struct Handler {
     ctx_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Context>>>>,
-    slash_commands: Vec<(GuildId, String, crate::slash::CommandPermissions, CreateApplicationCommand, for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>)>,
+    slash_commands: Vec<crate::slash::Command>,
     pub(crate) intents: GatewayIntents,
     ready: Vec<for<'r> fn(&'r Context, &'r Ready) -> Output<'r>>,
     guild_ban_addition: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
@@ -108,20 +102,20 @@ impl Handler {
     async fn setup_slash_commands(&self, ctx: &Context, guild_id: GuildId) -> serenity::Result<()> {
         let existing_commands = guild_id.get_application_commands(ctx).await?;
         let mut all_perms = CreateApplicationCommandsPermissions::default();
-        for (cmd_guild_id, name, perms, setup, _) in &self.slash_commands {
-            if *cmd_guild_id == guild_id {
-                let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|cmd| cmd.name == *name) {
+        for cmd in &self.slash_commands {
+            if cmd.guild_id == guild_id {
+                let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|iter_cmd| iter_cmd.name == cmd.name) {
                     //TODO only update if changed
-                    guild_id.edit_application_command(ctx, existing_command.id, |cmd| { *cmd = setup.clone(); cmd }).await?;
+                    guild_id.edit_application_command(ctx, existing_command.id, |setup| { *setup = cmd.setup.clone(); setup }).await?;
                     existing_command.id
                 } else {
-                    guild_id.create_application_command(ctx, |cmd| { *cmd = setup.clone(); cmd }).await?.id
+                    guild_id.create_application_command(ctx, |setup| { *setup = cmd.setup.clone(); setup }).await?.id
                 };
-                all_perms.create_application_command(|cmd| {
-                    cmd.id(cmd_id.0);
-                    for role in &perms.roles { cmd.create_permissions(|p| p.kind(ApplicationCommandPermissionType::Role).id(role.0).permission(true)); }
-                    for user in &perms.users { cmd.create_permissions(|p| p.kind(ApplicationCommandPermissionType::User).id(user.0).permission(true)); }
-                    cmd
+                all_perms.create_application_command(|cmd_perms| {
+                    cmd_perms.id(cmd_id.0);
+                    for role in &cmd.perms.roles { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::Role).id(role.0).permission(true)); }
+                    for user in &cmd.perms.users { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::User).id(user.0).permission(true)); }
+                    cmd_perms
                 });
             }
         }
@@ -131,13 +125,8 @@ impl Handler {
 }
 
 impl HandlerMethods for Handler {
-    fn slash_command(mut self, guild_id: GuildId, name: impl ToString, perms: crate::slash::CommandPermissions, setup: impl FnOnce(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand, handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>) -> Self {
-        let name = name.to_string();
-        let mut create = CreateApplicationCommand::default();
-        create.name(name.clone());
-        create.default_permission(false);
-        setup(&mut create);
-        self.slash_commands.push((guild_id, name, perms, create, handle));
+    fn slash_command(mut self, cmd: crate::slash::Command) -> Self {
+        self.slash_commands.push(cmd);
         self
     }
 
@@ -302,11 +291,11 @@ impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(interaction) = interaction {
             if let Some(guild_id) = interaction.guild_id {
-                for (iter_guild_id, name, _, _, handle) in &self.slash_commands {
-                    if *iter_guild_id == guild_id && *name == interaction.data.name {
-                        if let Err(e) = handle(&ctx, interaction).await {
+                for cmd in &self.slash_commands {
+                    if cmd.guild_id == guild_id && cmd.name == interaction.data.name {
+                        if let Err(e) = (cmd.handle)(&ctx, interaction).await {
                             if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                                let _ = error_notifier.say(&ctx, format!("error in slash command handler: `{:?}`", e)).await;
+                                let _ = error_notifier.say(&ctx, format!("error in handler for /{}: `{:?}`", cmd.name, e)).await;
                             }
                         }
                         break
