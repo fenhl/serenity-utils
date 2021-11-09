@@ -40,7 +40,7 @@ inventory::collect!(Command);
 
 /// Specifies who has permission to call a slash command.
 ///
-/// Passed as a parameter to [`Builder::slash_command`](crate::Builder::).
+/// Part of a [`Command`].
 ///
 /// By [`default`](Self::default), no one is allowed to use the command.
 #[derive(Default, Clone)]
@@ -107,7 +107,9 @@ pub trait Responder<'a> {
 impl<'a> Responder<'a> for () {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {
-            interaction.create_interaction_response(ctx, |builder| builder).await.map_err(Box::from)
+            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content("success").flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
+            interaction.delete_original_interaction_response(ctx).await?;
+            Ok(())
         })
     }
 }
