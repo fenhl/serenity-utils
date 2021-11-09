@@ -418,23 +418,6 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                 let (register_option, fn_arg) = loop { //HACK: use a loop with multiple if chains breaking out of it to avoid multiple or nested else clauses
                     if_chain! {
                         if let Type::Path(TypePath { qself: None, ref path }) = **ty;
-                        if path.is_ident("Member");
-                        then {
-                            break (false, quote!(if let Some(member) = interaction.member {
-                                member
-                            } else {
-                                interaction.create_interaction_response(ctx, |resp| resp
-                                    .interaction_response_data(|data| data
-                                        .content("This command only works in a server.")
-                                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
-                                    )
-                                ).await?;
-                                return ::core::result::Result::Ok(())
-                            }))
-                        }
-                    }
-                    if_chain! {
-                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
                         if path.is_ident("i64");
                         then {
                             let opt_name = if let Some(ref opt_name) = opt_name {
@@ -444,8 +427,8 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                                     compile_error!("slash command option must be named");
                                 }.into()
                             };
-                            create_option.push(quote!(opt.kind(ApplicationCommandOptionType::Integer)));
-                            create_option.push(quote!(opt.required(true)));
+                            create_option.push(quote!(opt.kind(::serenity_utils::slash::ApplicationCommandOptionType::Integer);));
+                            create_option.push(quote!(opt.required(true);));
                             break (true, quote!({
                                 let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
                                 if let ::serenity_utils::slash::ApplicationCommandInteractionDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::ApplicationCommandInteractionDataOptionValue::Integer(n)), .. } = option {
@@ -470,6 +453,24 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                         if path.is_ident("Context");
                         then {
                             break (false, quote!(ctx))
+                        }
+                    }
+                    if_chain! {
+                        if let Type::Reference(TypeReference { mutability, ref elem, .. }) = **ty;
+                        if let Type::Path(TypePath { qself: None, ref path }) = **elem;
+                        if path.is_ident("Member");
+                        then {
+                            break (false, quote!(if let Some(ref #mutability member) = interaction.member {
+                                member
+                            } else {
+                                interaction.create_interaction_response(ctx, |resp| resp
+                                    .interaction_response_data(|data| data
+                                        .content("This command only works in a server.")
+                                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
+                                    )
+                                ).await?;
+                                return ::core::result::Result::Ok(())
+                            }))
                         }
                     }
                     return quote_spanned! {ty.span()=>
@@ -504,7 +505,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             ::std::boxed::Box::pin(async move {
                 let fut = #name_ident(#(#fn_args,)*);
                 //TODO make sure no extra options are passed
-                fut.await.map_err(::std::boxed::Box::from)
+                ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
             })
         }
 

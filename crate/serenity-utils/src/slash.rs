@@ -3,7 +3,9 @@
 use {
     std::{
         fmt,
+        future::Future,
         ops::BitOr,
+        pin::Pin,
     },
     serenity::{
         builder::CreateApplicationCommand,
@@ -95,3 +97,28 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+/// A type that can be returned from a [`serenity_utils::slash_command`](serenity_utils_derive::slash_command) function (or the future it returns).
+pub trait Responder<'a> {
+    /// Sends a response for the interaction or returns an error.
+    fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>>;
+}
+
+impl<'a> Responder<'a> for () {
+    fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+        Box::pin(async move {
+            interaction.create_interaction_response(ctx, |builder| builder).await.map_err(Box::from)
+        })
+    }
+}
+
+impl<'a, T: Responder<'a> + Send + 'a, E: std::error::Error + Send + Sync + 'static> Responder<'a> for Result<T, E> {
+    fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+        Box::pin(async move {
+            match self {
+                Ok(x) => x.respond(ctx, interaction).await,
+                Err(e) => Err(e.into()),
+            }
+        })
+    }
+}
