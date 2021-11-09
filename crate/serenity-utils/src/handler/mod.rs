@@ -63,7 +63,7 @@ pub trait HandlerMethods {
 #[derive(Default)]
 pub struct Handler {
     ctx_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Context>>>>,
-    slash_commands: Vec<(String, GuildId, crate::slash::CommandPermissions, CreateApplicationCommand, for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>)>,
+    slash_commands: Vec<(GuildId, String, crate::slash::CommandPermissions, CreateApplicationCommand, for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>)>,
     pub(crate) intents: GatewayIntents,
     ready: Vec<for<'r> fn(&'r Context, &'r Ready) -> Output<'r>>,
     guild_ban_addition: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
@@ -108,7 +108,7 @@ impl Handler {
     async fn setup_slash_commands(&self, ctx: &Context, guild_id: GuildId) -> serenity::Result<()> {
         let existing_commands = guild_id.get_application_commands(ctx).await?;
         let mut all_perms = CreateApplicationCommandsPermissions::default();
-        for (name, cmd_guild_id, perms, setup, _) in &self.slash_commands {
+        for (cmd_guild_id, name, perms, setup, _) in &self.slash_commands {
             if *cmd_guild_id == guild_id {
                 let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|cmd| cmd.name == *name) {
                     //TODO only update if changed
@@ -137,7 +137,7 @@ impl HandlerMethods for Handler {
         create.name(name.clone());
         create.default_permission(false);
         setup(&mut create);
-        self.slash_commands.push((name, guild_id, perms, create, handle));
+        self.slash_commands.push((guild_id, name, perms, create, handle));
         self
     }
 
@@ -294,6 +294,23 @@ impl EventHandler for Handler {
             if let Err(e) = f(&ctx, &chunk).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
                     let _ = error_notifier.say(&ctx, format!("error in `guild_members_chunk` event: `{:?}`", e)).await;
+                }
+            }
+        }
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        if let Interaction::ApplicationCommand(interaction) = interaction {
+            if let Some(guild_id) = interaction.guild_id {
+                for (iter_guild_id, name, _, _, handle) in &self.slash_commands {
+                    if *iter_guild_id == guild_id && *name == interaction.data.name {
+                        if let Err(e) = handle(&ctx, interaction).await {
+                            if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
+                                let _ = error_notifier.say(&ctx, format!("error in slash command handler: `{:?}`", e)).await;
+                            }
+                        }
+                        break
+                    }
                 }
             }
         }
