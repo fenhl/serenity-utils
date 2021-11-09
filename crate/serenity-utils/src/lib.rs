@@ -41,6 +41,7 @@ pub use {
 
 pub mod builder;
 pub mod handler;
+pub mod slash;
 
 #[derive(Debug)]
 enum RwFutureData<T: Send + Sync> {

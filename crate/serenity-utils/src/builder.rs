@@ -10,6 +10,7 @@ use {
         time::Duration,
     },
     serenity::{
+        builder::CreateApplicationCommand,
         client::{
             ClientBuilder,
             bridge::gateway::GatewayIntents,
@@ -24,7 +25,10 @@ use {
             macros::help,
         },
         http::Http,
-        model::prelude::*,
+        model::{
+            interactions::application_command::ApplicationCommandInteraction,
+            prelude::*,
+        },
         prelude::*,
     },
     tokio::time::sleep,
@@ -131,8 +135,8 @@ impl Builder {
         self.data::<ErrorNotifier>(notifier)
     }
 
-    /// Adds command handling with a useful default configuration.
-    pub fn commands(mut self, prefix: Option<&str>, commands: &'static CommandGroup) -> Self {
+    /// Adds command handling via [`serenity`]'s [`StandardFramework`] with a useful default configuration.
+    pub fn message_commands(mut self, prefix: Option<&str>, commands: &'static CommandGroup) -> Self {
         #[help]
         async fn help(ctx: &Context, msg: &Message, args: Args, help_options: &'static HelpOptions, groups: &[&'static CommandGroup], owners: HashSet<UserId>) -> CommandResult {
             let _ = help_commands::with_embeds(ctx, msg, args, help_options, groups, owners).await;
@@ -278,6 +282,10 @@ impl Builder {
 }
 
 impl HandlerMethods for Builder {
+    fn slash_command(self, guild_id: GuildId, name: impl ToString, perms: crate::slash::CommandPermissions, setup: impl FnOnce(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand, handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> handler::Output<'r>) -> Self {
+        self.edit_handler(|handler| handler.slash_command(guild_id, name, perms, setup, handle))
+    }
+
     fn on_ready(self, f: for<'r> fn(&'r Context, &'r Ready) -> handler::Output<'r>) -> Self {
         self.edit_handler(|handler| handler.on_ready(f))
     }

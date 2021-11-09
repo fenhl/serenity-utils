@@ -7,8 +7,18 @@ use {
         sync::Arc,
     },
     serenity::{
+        builder::{
+            CreateApplicationCommand,
+            CreateApplicationCommandsPermissions,
+        },
         client::bridge::gateway::GatewayIntents,
-        model::prelude::*,
+        model::{
+            interactions::application_command::{
+                ApplicationCommandInteraction,
+                ApplicationCommandPermissionType,
+            },
+            prelude::*,
+        },
         prelude::*,
     },
     tokio::sync::Mutex,
@@ -30,6 +40,11 @@ pub(crate) type Output<'r> = Pin<Box<dyn Future<Output = Result<(), Box<dyn std:
 
 #[allow(missing_docs)] //TODO link to equivalent methods on serenity?
 pub trait HandlerMethods {
+    /// Adds a slash command.
+    ///
+    /// The command will be automatically created or updated each time the bot connects to Discord. Note that commands not specified will *not* be deleted.
+    fn slash_command(self, guild_id: GuildId, name: impl ToString, perms: crate::slash::CommandPermissions, setup: impl FnOnce(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand, handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>) -> Self;
+
     fn on_ready(self, f: for<'r> fn(&'r Context, &'r Ready) -> Output<'r>) -> Self;
     fn on_guild_ban_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
     fn on_guild_ban_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
@@ -48,6 +63,7 @@ pub trait HandlerMethods {
 #[derive(Default)]
 pub struct Handler {
     ctx_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Context>>>>,
+    slash_commands: Vec<(String, GuildId, crate::slash::CommandPermissions, CreateApplicationCommand, for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>)>,
     pub(crate) intents: GatewayIntents,
     ready: Vec<for<'r> fn(&'r Context, &'r Ready) -> Output<'r>>,
     guild_ban_addition: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
@@ -74,7 +90,8 @@ impl Handler {
     }
 
     pub(crate) fn merge(&mut self, other: Self) {
-        let Handler { ctx_tx: _, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, message, voice_state_update } = other;
+        let Handler { ctx_tx: _, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, message, voice_state_update } = other;
+        self.slash_commands.extend(slash_commands);
         self.intents |= intents;
         self.ready.extend(ready);
         self.guild_ban_addition.extend(guild_ban_addition);
@@ -87,9 +104,43 @@ impl Handler {
         self.message.extend(message);
         self.voice_state_update.extend(voice_state_update);
     }
+
+    async fn setup_slash_commands(&self, ctx: &Context, guild_id: GuildId) -> serenity::Result<()> {
+        let existing_commands = guild_id.get_application_commands(ctx).await?;
+        let mut all_perms = CreateApplicationCommandsPermissions::default();
+        for (name, cmd_guild_id, perms, setup, _) in &self.slash_commands {
+            if *cmd_guild_id == guild_id {
+                let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|cmd| cmd.name == *name) {
+                    //TODO only update if changed
+                    guild_id.edit_application_command(ctx, existing_command.id, |cmd| { *cmd = setup.clone(); cmd }).await?;
+                    existing_command.id
+                } else {
+                    guild_id.create_application_command(ctx, |cmd| { *cmd = setup.clone(); cmd }).await?.id
+                };
+                all_perms.create_application_command(|cmd| {
+                    cmd.id(cmd_id.0);
+                    for role in &perms.roles { cmd.create_permissions(|p| p.kind(ApplicationCommandPermissionType::Role).id(role.0).permission(true)); }
+                    for user in &perms.users { cmd.create_permissions(|p| p.kind(ApplicationCommandPermissionType::User).id(user.0).permission(true)); }
+                    cmd
+                });
+            }
+        }
+        guild_id.set_application_commands_permissions(ctx, |p| { *p = all_perms; p }).await?;
+        Ok(())
+    }
 }
 
 impl HandlerMethods for Handler {
+    fn slash_command(mut self, guild_id: GuildId, name: impl ToString, perms: crate::slash::CommandPermissions, setup: impl FnOnce(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand, handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> Output<'r>) -> Self {
+        let name = name.to_string();
+        let mut create = CreateApplicationCommand::default();
+        create.name(name.clone());
+        create.default_permission(false);
+        setup(&mut create);
+        self.slash_commands.push((name, guild_id, perms, create, handle));
+        self
+    }
+
     fn on_ready(mut self, f: for<'r> fn(&'r Context, &'r Ready) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'r>>) -> Self {
         self.ready.push(f);
         self
@@ -194,6 +245,11 @@ impl EventHandler for Handler {
     }
 
     async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
+        if let Err(e) = self.setup_slash_commands(&ctx, guild.id).await {
+            if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
+                let _ = error_notifier.say(&ctx, format!("error setting up slash commands: `{:?}`", e)).await;
+            }
+        }
         for f in &self.guild_create {
             if let Err(e) = f(&ctx, &guild, is_new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {

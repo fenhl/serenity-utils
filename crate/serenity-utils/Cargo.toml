@@ -11,13 +11,16 @@ path = "src/lib.rs"
 [dependencies]
 futures = "0.3" # used in proc macro
 parking_lot = "0.11" # used in proc macro
-serenity = "0.10"
 shlex = "1" # used in proc macro
 
 [dependencies.derive_more] # used in proc macro
 version = "0.99"
 default-features = false
 features = ["from"]
+
+[dependencies.serenity]
+version = "0.10"
+features = ["unstable_discord_api"]
 
 [dependencies.serenity-utils-derive]
 version = "=0.5.1"
