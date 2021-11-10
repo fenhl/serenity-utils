@@ -108,7 +108,24 @@ impl<'a> Responder<'a> for () {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {
             interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content("success").flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
-            interaction.delete_original_interaction_response(ctx).await?;
+            Ok(())
+        })
+    }
+}
+
+impl<'a> Responder<'a> for String {
+    fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+        Box::pin(async move {
+            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content(self).flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
+            Ok(())
+        })
+    }
+}
+
+impl<'a, 'b: 'a> Responder<'a> for &'b str {
+    fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+        Box::pin(async move {
+            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content(self).flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
             Ok(())
         })
     }
