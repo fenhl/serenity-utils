@@ -497,8 +497,6 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
     }
     let wrapper_name = Ident::new(&format!("{}_wrapper", name), Span::call_site());
     TokenStream::from(quote! {
-        use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
-
         #cmd_fn
 
         fn #wrapper_name(ctx: &Context, mut interaction: ::serenity_utils::slash::ApplicationCommandInteraction) -> ::core::pin::Pin<::std::boxed::Box<dyn ::core::future::Future<Output = ::core::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Send + ::core::marker::Sync>>> + ::core::marker::Send + '_>> {
@@ -507,25 +505,29 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                 //TODO make sure no extra options are passed
                 ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
             })
-        }
 
-        inventory::submit! {
-            let mut setup = ::serenity_utils::serenity::builder::CreateApplicationCommand::default();
-            setup.name(#name);
-            setup.default_permission(false);
-            #description
-            #(
-                setup.create_option(|opt| {
-                    #(#create_options)*
-                    opt
-                });
-            )*
-            ::serenity_utils::slash::Command {
-                guild_id: #guild_id,
-                name: #name,
-                perms: #perms,
-                setup,
-                handle: #wrapper_name,
+            //HACK to avoid “inventory is defined multiple times”
+
+            use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
+
+            inventory::submit! {
+                let mut setup = ::serenity_utils::serenity::builder::CreateApplicationCommand::default();
+                setup.name(#name);
+                setup.default_permission(false);
+                #description
+                #(
+                    setup.create_option(|opt| {
+                        #(#create_options)*
+                        opt
+                    });
+                )*
+                ::serenity_utils::slash::Command {
+                    guild_id: #guild_id,
+                    name: #name,
+                    perms: #perms,
+                    setup,
+                    handle: #wrapper_name,
+                }
             }
         }
     })
