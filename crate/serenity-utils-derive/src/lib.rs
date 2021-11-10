@@ -500,13 +500,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
         #cmd_fn
 
         fn #wrapper_name(ctx: &Context, mut interaction: ::serenity_utils::slash::ApplicationCommandInteraction) -> ::core::pin::Pin<::std::boxed::Box<dyn ::core::future::Future<Output = ::core::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Send + ::core::marker::Sync>>> + ::core::marker::Send + '_>> {
-            ::std::boxed::Box::pin(async move {
-                let fut = #name_ident(#(#fn_args,)*);
-                //TODO make sure no extra options are passed
-                ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
-            })
-
-            //HACK to avoid “inventory is defined multiple times”
+            //HACK put use and macro in a scope to avoid “inventory is defined multiple times”
 
             use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
 
@@ -529,6 +523,12 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                     handle: #wrapper_name,
                 }
             }
+
+            ::std::boxed::Box::pin(async move {
+                let fut = #name_ident(#(#fn_args,)*);
+                //TODO make sure no extra options are passed
+                ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
+            })
         }
     })
 }
