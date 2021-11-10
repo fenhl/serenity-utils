@@ -4,6 +4,10 @@
 
 use {
     std::ops::RangeInclusive,
+    convert_case::{
+        Case,
+        Casing as _,
+    },
     if_chain::if_chain,
     itertools::Itertools as _,
     proc_macro::TokenStream,
@@ -365,8 +369,8 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     let mut cmd_fn = parse_macro_input!(item as ItemFn);
-    let name_ident = &cmd_fn.sig.ident;
-    let name = name_ident.to_string();
+    let name_snake = &cmd_fn.sig.ident;
+    let name_kebab = name_snake.to_string().to_case(Case::Kebab);
     let description = if let Ok(doc_comment) = cmd_fn.attrs.iter().filter(|attr| attr.path.is_ident("doc")).exactly_one() {
         match doc_comment.parse_meta() {
             Ok(Meta::NameValue(MetaNameValue { lit: Lit::Str(comment), .. })) => quote!(setup.description(#comment);),
@@ -495,7 +499,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             }.into(),
         }
     }
-    let wrapper_name = Ident::new(&format!("{}_wrapper", name), Span::call_site());
+    let wrapper_name = Ident::new(&format!("{}_wrapper", name_snake), Span::call_site());
     TokenStream::from(quote! {
         #cmd_fn
 
@@ -506,7 +510,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
 
             inventory::submit! {
                 let mut setup = ::serenity_utils::serenity::builder::CreateApplicationCommand::default();
-                setup.name(#name);
+                setup.name(#name_kebab);
                 setup.default_permission(false);
                 #description
                 #(
@@ -517,7 +521,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                 )*
                 ::serenity_utils::slash::Command {
                     guild_id: #guild_id,
-                    name: #name,
+                    name: #name_kebab,
                     perms: #perms,
                     setup,
                     handle: #wrapper_name,
@@ -525,7 +529,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             ::std::boxed::Box::pin(async move {
-                let fut = #name_ident(#(#fn_args,)*);
+                let fut = #name_snake(#(#fn_args,)*);
                 //TODO make sure no extra options are passed
                 ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
             })
