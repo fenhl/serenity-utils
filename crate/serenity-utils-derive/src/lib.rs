@@ -422,6 +422,23 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                 let (register_option, fn_arg) = loop { //HACK: use a loop with multiple if chains breaking out of it to avoid multiple or nested else clauses
                     if_chain! {
                         if let Type::Path(TypePath { qself: None, ref path }) = **ty;
+                        if path.is_ident("GuildId");
+                        then {
+                            break (false, quote!(if let Some(guild_id) = interaction.guild_id {
+                                guild_id
+                            } else {
+                                interaction.create_interaction_response(ctx, |resp| resp
+                                    .interaction_response_data(|data| data
+                                        .content("This command only works in a server.")
+                                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
+                                    )
+                                ).await?;
+                                return ::core::result::Result::Ok(())
+                            }))
+                        }
+                    }
+                    if_chain! {
+                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
                         if path.is_ident("i64");
                         then {
                             let opt_name = if let Some(ref opt_name) = opt_name {
