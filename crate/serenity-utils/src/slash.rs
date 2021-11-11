@@ -27,11 +27,11 @@ pub struct Command {
     /// The command name. Must be unique for this application and guild.
     pub name: &'static str,
     /// The permissions that will be set up for the command.
-    pub perms: CommandPermissions,
+    pub perms: fn() -> CommandPermissions,
     /// The command will be created with these options. The `name` must be set here.
     ///
     /// If it already exists, these options will override the existing ones.
-    pub setup: CreateApplicationCommand,
+    pub setup: fn(&mut CreateApplicationCommand) -> &mut CreateApplicationCommand,
     /// The function to be called when the command is used.
     pub handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> crate::handler::Output<'r>,
 }

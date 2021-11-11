@@ -106,15 +106,16 @@ impl Handler {
             if cmd.guild_id == guild_id {
                 let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|iter_cmd| iter_cmd.name == cmd.name) {
                     //TODO only update if changed
-                    guild_id.edit_application_command(ctx, existing_command.id, |setup| { *setup = cmd.setup.clone(); setup }).await?;
+                    guild_id.edit_application_command(ctx, existing_command.id, cmd.setup).await?;
                     existing_command.id
                 } else {
-                    guild_id.create_application_command(ctx, |setup| { *setup = cmd.setup.clone(); setup }).await?.id
+                    guild_id.create_application_command(ctx, cmd.setup).await?.id
                 };
                 all_perms.create_application_command(|cmd_perms| {
+                    let perms = (cmd.perms)();
                     cmd_perms.id(cmd_id.0);
-                    for role in &cmd.perms.roles { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::Role).id(role.0).permission(true)); }
-                    for user in &cmd.perms.users { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::User).id(user.0).permission(true)); }
+                    for role in perms.roles { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::Role).id(role.0).permission(true)); }
+                    for user in perms.users { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::User).id(user.0).permission(true)); }
                     cmd_perms
                 });
             }

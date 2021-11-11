@@ -526,21 +526,22 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
 
             inventory::submit! {
-                let mut setup = ::serenity_utils::serenity::builder::CreateApplicationCommand::default();
-                setup.name(#name_kebab);
-                setup.default_permission(false);
-                #description
-                #(
-                    setup.create_option(|opt| {
-                        #(#create_options)*
-                        opt
-                    });
-                )*
                 ::serenity_utils::slash::Command {
                     guild_id: #guild_id,
                     name: #name_kebab,
-                    perms: #perms,
-                    setup,
+                    perms: || #perms,
+                    setup: |setup| {
+                        setup.name(#name_kebab);
+                        setup.default_permission(false);
+                        #description
+                        #(
+                            setup.create_option(|opt| {
+                                #(#create_options)*
+                                opt
+                            });
+                        )*
+                        setup
+                    },
                     handle: #wrapper_name,
                 }
             }
