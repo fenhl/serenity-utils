@@ -104,6 +104,17 @@ pub trait Responder<'a> {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>>;
 }
 
+/// Return this from a slash command to skip creating the interaction response.
+///
+/// Note that users will see commands that haven't been responded to as failed.
+pub struct NoResponse;
+
+impl<'a> Responder<'a> for NoResponse {
+    fn respond(self, _: &'a Context, _: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
 impl<'a> Responder<'a> for () {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {

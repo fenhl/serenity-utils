@@ -353,6 +353,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut args = parse_macro_input!(args as AttributeArgs);
     if args.is_empty() { return quote!(compile_error!("must provide guild ID as argument");).into() }
     let guild_id = args.remove(0);
+    let mut default_permission = false;
     let mut perms = quote!(::serenity_utils::slash::CommandPermissions::default());
     for arg in args {
         if_chain! {
@@ -362,12 +363,20 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                 for perm in nested {
                     perms = quote!((#perms | #perm));
                 }
-            } else {
-                return quote_spanned! {arg.span()=>
-                    compile_error!("unexpected #[serenity_utils::slash_command] argument");
-                }.into()
+                continue
             }
         }
+        if_chain! {
+            if let NestedMeta::Meta(Meta::Path(ref path)) = arg;
+            if path.is_ident("allow_all");
+            then {
+                default_permission = true;
+                continue
+            }
+        }
+        return quote_spanned! {arg.span()=>
+            compile_error!("unexpected #[serenity_utils::slash_command] argument");
+        }.into()
     }
     let mut cmd_fn = parse_macro_input!(item as ItemFn);
     let name_snake = &cmd_fn.sig.ident;
@@ -440,6 +449,33 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                     }
                     if_chain! {
                         if let Type::Path(TypePath { qself: None, ref path }) = **ty;
+                        if path.is_ident("Role");
+                        then {
+                            let opt_name = if let Some(ref opt_name) = opt_name {
+                                opt_name
+                            } else {
+                                return quote_spanned! {pat.span()=>
+                                    compile_error!("slash command option must be named");
+                                }.into()
+                            };
+                            create_option.push(quote!(opt.kind(::serenity_utils::slash::ApplicationCommandOptionType::Role);));
+                            create_option.push(quote!(opt.required(true);));
+                            break (true, quote!({
+                                let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
+                                if let ::serenity_utils::slash::ApplicationCommandInteractionDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::ApplicationCommandInteractionDataOptionValue::Role(role)), .. } = option {
+                                    if name == #opt_name {
+                                        role
+                                    } else {
+                                        return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionName.into())
+                                    }
+                                } else {
+                                    return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionType.into())
+                                }
+                            }))
+                        }
+                    }
+                    if_chain! {
+                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
                         if path.is_ident("i64");
                         then {
                             let opt_name = if let Some(ref opt_name) = opt_name {
@@ -467,6 +503,14 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                                     return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionType.into())
                                 }
                             }))
+                        }
+                    }
+                    if_chain! {
+                        if let Type::Reference(TypeReference { mutability: None, ref elem, .. }) = **ty;
+                        if let Type::Path(TypePath { qself: None, ref path }) = **elem;
+                        if path.is_ident("ApplicationCommandInteraction");
+                        then {
+                            break (false, quote!(&interaction))
                         }
                     }
                     if_chain! {
@@ -535,7 +579,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                     perms: || #perms,
                     setup: |setup| {
                         setup.name(#name_kebab);
-                        setup.default_permission(false);
+                        setup.default_permission(#default_permission);
                         #description
                         #(
                             setup.create_option(|opt| {
