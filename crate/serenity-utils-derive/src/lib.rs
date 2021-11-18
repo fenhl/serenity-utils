@@ -351,6 +351,7 @@ impl Parse for SlashCommandDirective {
 #[proc_macro_attribute]
 pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut args = parse_macro_input!(args as AttributeArgs);
+    if args.is_empty() { return quote!(compile_error!("must provide guild ID as argument");).into() }
     let guild_id = args.remove(0);
     let mut perms = quote!(::serenity_utils::slash::CommandPermissions::default());
     for arg in args {
@@ -548,7 +549,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
 
             ::std::boxed::Box::pin(async move {
                 let fut = #name_snake(#(#fn_args,)*);
-                //TODO make sure no extra options are passed
+                //TODO make sure no extra options are passed (error if !interaction.data.options.is_empty())
                 ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
             })
         }
