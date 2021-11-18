@@ -518,6 +518,8 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     let wrapper_name = Ident::new(&format!("{}_wrapper", name_snake), Span::call_site());
+    let mut fut = quote!(#name_snake(#(#fn_args,)*));
+    if cmd_fn.sig.asyncness.is_none() { fut = quote!(async { #fut }) }
     TokenStream::from(quote! {
         #cmd_fn
 
@@ -548,7 +550,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             }
 
             ::std::boxed::Box::pin(async move {
-                let fut = #name_snake(#(#fn_args,)*);
+                let fut = #fut;
                 //TODO make sure no extra options are passed (error if !interaction.data.options.is_empty())
                 ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
             })
