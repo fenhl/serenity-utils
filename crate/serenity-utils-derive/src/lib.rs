@@ -383,14 +383,14 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
     let name_kebab = name_snake.to_string().to_case(Case::Kebab);
     let description = if let Ok(doc_comment) = cmd_fn.attrs.iter().filter(|attr| attr.path.is_ident("doc")).exactly_one() {
         match doc_comment.parse_meta() {
-            Ok(Meta::NameValue(MetaNameValue { lit: Lit::Str(comment), .. })) => quote!(setup.description(#comment);),
+            Ok(Meta::NameValue(MetaNameValue { lit: Lit::Str(comment), .. })) => comment,
             Ok(_) => return quote_spanned! {doc_comment.span()=>
                 compile_error!("unexpected format for doc comment");
             }.into(),
             Err(e) => return e.into_compile_error().into(),
         }
     } else {
-        quote!()
+        return quote!(compile_error!("slash command description is required");).into()
     };
     let mut create_options = Vec::default();
     let mut fn_args = Vec::default();
@@ -579,8 +579,8 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                     perms: || #perms,
                     setup: |setup| {
                         setup.name(#name_kebab);
+                        setup.description(#description);
                         setup.default_permission(#default_permission);
-                        #description
                         #(
                             setup.create_option(|opt| {
                                 #(#create_options)*
