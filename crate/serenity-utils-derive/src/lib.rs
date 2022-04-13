@@ -653,8 +653,34 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
             _ => (parse_quote!(-> ::serenity_utils::serenity::Result<()>), quote!(main_inner().await)),
         },
     };
-    let wrapper_body = if let Some(ipc_mod) = ipc_mod {
-        quote!({
+    let mut wrapper_body = quote!(let mut builder = #builder_expr;);
+    if let Some(ref ipc_mod) = ipc_mod {
+        wrapper_body = quote! {
+            #wrapper_body
+            if builder.has_ctx_fut() {
+                // listen for IPC commands
+                builder = builder.task(|ctx_fut, notify_thread_crash| async move {
+                    match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
+                        Ok(never) => match never {},
+                        Err(e) => {
+                            eprintln!("{}", e);
+                            notify_thread_crash(format!("IPC"), Box::new(e), None).await;
+                        }
+                    }
+                });
+            }
+        };
+    }
+    wrapper_body = quote! {
+        #wrapper_body
+        for cmd in inventory::iter::<::serenity_utils::slash::Command> {
+            builder = ::serenity_utils::handler::HandlerMethods::slash_command(builder, cmd.clone());
+        }
+        builder.run().await?;
+        ::core::result::Result::Ok(())
+    };
+    if let Some(ipc_mod) = ipc_mod {
+        wrapper_body = quote! {
             let mut args = ::std::env::args()
                 .skip(1) // ignore executable name
                 .peekable();
@@ -662,32 +688,9 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 println!("{}", #ipc_mod::send(args)?);
                 Ok(())
             } else {
-                let mut builder = #builder_expr;
-                if builder.has_ctx_fut() {
-                    // listen for IPC commands
-                    builder = builder.task(|ctx_fut, notify_thread_crash| async move {
-                        match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
-                            Ok(never) => match never {},
-                            Err(e) => {
-                                eprintln!("{}", e);
-                                notify_thread_crash(format!("IPC"), Box::new(e), None).await;
-                            }
-                        }
-                    });
-                }
-                for cmd in inventory::iter::<::serenity_utils::slash::Command> {
-                    builder = ::serenity_utils::handler::HandlerMethods::slash_command(builder, cmd.clone());
-                }
-                builder.run().await?;
-                ::core::result::Result::Ok(())
+                #wrapper_body
             }
-        })
-    } else {
-        quote!({
-            let builder = #builder_expr;
-            builder.run().await?;
-            ::core::result::Result::Ok(())
-        })
+        };
     };
     TokenStream::from(quote! {
         use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
