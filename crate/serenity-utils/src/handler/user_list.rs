@@ -33,7 +33,7 @@ pub fn user_list_exporter<M: ExporterMethods>() -> Handler {
             M::upsert(ctx, &guild_id.member(ctx, user).await?).await
         }))
         .on_guild_create(true, |ctx, guild, _| M::replace_all(ctx, guild.members.values().collect()))
-        .on_guild_member_addition(|ctx, _, member| M::upsert(ctx, member))
+        .on_guild_member_addition(|ctx, member| M::upsert(ctx, member))
         .on_guild_member_removal(|ctx, guild_id, user, _| M::remove(ctx, user.id, guild_id))
         .on_guild_member_update(|ctx, _, member| M::upsert(ctx, member))
         .on_guild_members_chunk(|ctx, chunk| Box::pin(async move {

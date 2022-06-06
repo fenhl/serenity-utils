@@ -10,10 +10,7 @@ use {
         time::Duration,
     },
     serenity::{
-        client::{
-            ClientBuilder,
-            bridge::gateway::GatewayIntents,
-        },
+        client::ClientBuilder,
         framework::standard::{
             Args,
             CommandGroup,
@@ -80,7 +77,7 @@ impl TypeMapKey for UnrecognizedReply {
 ///
 /// This type is created using the [`builder`](crate::builder()) function, and used by returning it from a function annotated with [`serenity_utils::main`](crate::main).
 pub struct Builder {
-    client: ClientBuilder<'static>,
+    client: ClientBuilder,
     ctx_fut: Option<RwFuture<Context>>,
     framework: StandardFramework,
     handler: Option<Handler>,
@@ -89,16 +86,16 @@ pub struct Builder {
 
 impl Builder {
     pub(crate) async fn new(app_id: u64, token: String) -> serenity::Result<Self> {
-        let app_info = Http::new_with_token(&token).get_current_application_info().await?;
+        let app_info = Http::new(&token).get_current_application_info().await?;
         let builder = Self {
-            client: Client::builder(&token).application_id(app_id),
+            client: Client::builder(&token, GatewayIntents::default()).application_id(app_id),
             ctx_fut: None,
             framework: StandardFramework::new()
                 .configure(|c| c
                     .with_whitespace(true)
                     .case_insensitivity(true)
                     .no_dm_prefix(true)
-                    .on_mention(Some(app_info.id))
+                    .on_mention(Some(UserId(app_info.id.0)))
                     .owners(iter::once(app_info.owner.id).collect())
                 )
                 .after(|ctx, msg, command_name, result| Box::pin(async move {
@@ -298,7 +295,7 @@ impl HandlerMethods for Builder {
         self.edit_handler(|handler| handler.on_guild_create(require_members, f))
     }
 
-    fn on_guild_member_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r Member) -> handler::Output<'r>) -> Self {
+    fn on_guild_member_addition(self, f: for<'r> fn(&'r Context, &'r Member) -> handler::Output<'r>) -> Self {
         self.edit_handler(|handler| handler.on_guild_member_addition(f))
     }
 
@@ -318,7 +315,7 @@ impl HandlerMethods for Builder {
         self.edit_handler(|handler| handler.on_message(f))
     }
 
-    fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<GuildId>, Option<&'r VoiceState>, &'r VoiceState) -> handler::Output<'r>) -> Self {
+    fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> handler::Output<'r>) -> Self {
         self.edit_handler(|handler| handler.on_voice_state_update(f))
     }
 }

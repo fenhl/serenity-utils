@@ -72,8 +72,8 @@ pub fn voice_state_exporter<M: ExporterMethods>() -> Handler {
             M::dump_info(ctx, guild.id, &VoiceStates(chan_map)).await?;
             Ok(())
         }))
-        .on_voice_state_update(|ctx, guild_id, _, new| Box::pin(async move {
-            let guild_id = guild_id.expect("voice_state_update called without guild");
+        .on_voice_state_update(|ctx, _, new| Box::pin(async move {
+            let guild_id = new.guild_id.expect("voice_state_update called without guild");
             let user = new.user_id.to_user(&ctx).await?;
             let ignored_channels = M::ignored_channels(ctx).await?;
             let (voice_states, notify_start, chan_id) = {

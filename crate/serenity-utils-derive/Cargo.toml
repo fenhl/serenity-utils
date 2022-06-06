@@ -1,6 +1,6 @@
 [package]
 name = "serenity-utils-derive"
-version = "0.6.3"
+version = "0.7.0"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
 
@@ -10,7 +10,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies]
-convert_case = "0.4"
+convert_case = "0.5"
 if_chain = "1"
 itertools = "0.10"
 proc-macro2 = "1"

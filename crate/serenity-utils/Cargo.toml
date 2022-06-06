@@ -1,6 +1,6 @@
 [package]
 name = "serenity-utils"
-version = "0.6.3"
+version = "0.7.0"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
 
@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 futures = "0.3" # used in proc macro
 inventory = "0.2" # used in proc macro
-parking_lot = "0.11" # used in proc macro
+parking_lot = "0.12" # used in proc macro
 shlex = "1" # used in proc macro
 
 [dependencies.derive_more] # used in proc macro
@@ -20,11 +20,11 @@ default-features = false
 features = ["from"]
 
 [dependencies.serenity]
-version = "0.10"
+version = "0.11"
 features = ["unstable_discord_api"]
 
 [dependencies.serenity-utils-derive]
-version = "=0.6.3"
+version = "=0.7.0"
 path = "../serenity-utils-derive"
 
 [dependencies.tokio]

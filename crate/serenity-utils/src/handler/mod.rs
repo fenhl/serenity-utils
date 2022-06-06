@@ -8,7 +8,6 @@ use {
     },
     serenity::{
         builder::CreateApplicationCommandsPermissions,
-        client::bridge::gateway::GatewayIntents,
         model::{
             interactions::application_command::ApplicationCommandPermissionType,
             prelude::*,
@@ -43,12 +42,12 @@ pub trait HandlerMethods {
     fn on_guild_ban_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
     fn on_guild_ban_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
     fn on_guild_create(self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, bool) -> Output<'r>) -> Self;
-    fn on_guild_member_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r Member) -> Output<'r>) -> Self;
+    fn on_guild_member_addition(self, f: for<'r> fn(&'r Context, &'r Member) -> Output<'r>) -> Self;
     fn on_guild_member_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>) -> Self;
     fn on_guild_member_update(self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>) -> Self;
     fn on_guild_members_chunk(self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>) -> Self;
     fn on_message(self, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self;
-    fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<GuildId>, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
+    fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
 }
 
 /// A type that implements serenity's [`EventHandler`](serenity::client::EventHandler) trait, but with a more convenient interface, such as requesting intents automatically.
@@ -63,12 +62,12 @@ pub struct Handler {
     guild_ban_addition: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
     guild_ban_removal: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
     guild_create: Vec<for<'r> fn(&'r Context, &'r Guild, bool) -> Output<'r>>,
-    guild_member_addition: Vec<for<'r> fn(&'r Context, GuildId, &'r Member) -> Output<'r>>,
+    guild_member_addition: Vec<for<'r> fn(&'r Context, &'r Member) -> Output<'r>>,
     guild_member_removal: Vec<for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>>,
     guild_member_update: Vec<for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>>,
     guild_members_chunk: Vec<for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>>,
     message: Vec<for<'r> fn(&'r Context, &'r Message) -> Output<'r>>,
-    voice_state_update: Vec<for<'r> fn(&'r Context, Option<GuildId>, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>>,
+    voice_state_update: Vec<for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>>,
 }
 
 impl Handler {
@@ -155,7 +154,7 @@ impl HandlerMethods for Handler {
         self
     }
 
-    fn on_guild_member_addition(mut self, f: for<'r> fn(&'r Context, GuildId, &'r Member) -> Output<'r>) -> Self {
+    fn on_guild_member_addition(mut self, f: for<'r> fn(&'r Context, &'r Member) -> Output<'r>) -> Self {
         self.intents |= GatewayIntents::GUILD_MEMBERS;
         self.guild_member_addition.push(f);
         self
@@ -184,7 +183,7 @@ impl HandlerMethods for Handler {
         self
     }
 
-    fn on_voice_state_update(mut self, f: for<'r> fn(&'r Context, Option<GuildId>, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self {
+    fn on_voice_state_update(mut self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self {
         self.intents |= GatewayIntents::GUILD_VOICE_STATES;
         self.voice_state_update.push(f);
         self
@@ -249,9 +248,9 @@ impl EventHandler for Handler {
         }
     }
 
-    async fn guild_member_addition(&self, ctx: Context, guild_id: GuildId, new_member: Member) {
+    async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
         for f in &self.guild_member_addition {
-            if let Err(e) = f(&ctx, guild_id, &new_member).await {
+            if let Err(e) = f(&ctx, &new_member).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
                     let _ = error_notifier.say(&ctx, format!("error in `guild_member_addition` event: `{:?}`", e)).await;
                 }
@@ -316,9 +315,9 @@ impl EventHandler for Handler {
         }
     }
 
-    async fn voice_state_update(&self, ctx: Context, arg2: Option<GuildId>, old: Option<VoiceState>, new: VoiceState) {
+    async fn voice_state_update(&self, ctx: Context, old: Option<VoiceState>, new: VoiceState) {
         for f in &self.voice_state_update {
-            if let Err(e) = f(&ctx, arg2, old.as_ref(), &new).await {
+            if let Err(e) = f(&ctx, old.as_ref(), &new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
                     let _ = error_notifier.say(&ctx, format!("error in `voice_state_update` event: `{:?}`", e)).await;
                 }
