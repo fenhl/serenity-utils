@@ -353,7 +353,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut args = parse_macro_input!(args as AttributeArgs);
     if args.is_empty() { return quote!(compile_error!("must provide guild ID as argument");).into() }
     let guild_id = args.remove(0);
-    let mut default_permission = false;
+    let mut default_permission = quote!(::serenity_utils::serenity::model::permissions::Permissions::ADMINISTRATOR);
     let mut perms = quote!(::serenity_utils::slash::CommandPermissions::default());
     for arg in args {
         if_chain! {
@@ -370,7 +370,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             if let NestedMeta::Meta(Meta::Path(ref path)) = arg;
             if path.is_ident("allow_all");
             then {
-                default_permission = true;
+                default_permission = quote!(::serenity_utils::serenity::model::permissions::Permissions::empty());
                 continue
             }
         }
@@ -580,7 +580,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                     setup: |setup| {
                         setup.name(#name_kebab);
                         setup.description(#description);
-                        setup.default_permission(#default_permission);
+                        setup.default_member_permissions(#default_permission);
                         #(
                             setup.create_option(|opt| {
                                 #(#create_options)*
