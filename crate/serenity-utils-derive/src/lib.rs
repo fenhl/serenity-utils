@@ -381,6 +381,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut cmd_fn = parse_macro_input!(item as ItemFn);
     let name_snake = &cmd_fn.sig.ident;
     let name_kebab = name_snake.to_string().to_case(Case::Kebab);
+    let name_screaming_snake = Ident::new(&name_snake.to_string().to_case(Case::ScreamingSnake), name_snake.span());
     let description = if let Ok(doc_comment) = cmd_fn.attrs.iter().filter(|attr| attr.path.is_ident("doc")).exactly_one() {
         match doc_comment.parse_meta() {
             Ok(Meta::NameValue(MetaNameValue { lit: Lit::Str(comment), .. })) => comment,
@@ -561,44 +562,39 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
             }.into(),
         }
     }
-    let wrapper_name = Ident::new(&format!("{}_wrapper", name_snake), Span::call_site());
+    let wrapper_name = Ident::new(&format!("{name_snake}_wrapper"), Span::call_site());
     let mut fut = quote!(#name_snake(#(#fn_args,)*));
     if cmd_fn.sig.asyncness.is_none() { fut = quote!(async { #fut }) }
+    let vis = &cmd_fn.vis;
     TokenStream::from(quote! {
         #cmd_fn
 
         fn #wrapper_name(ctx: &Context, mut interaction: ::serenity_utils::slash::ApplicationCommandInteraction) -> ::core::pin::Pin<::std::boxed::Box<dyn ::core::future::Future<Output = ::core::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Send + ::core::marker::Sync>>> + ::core::marker::Send + '_>> {
-            //HACK put use and macro in a scope to avoid “inventory is defined multiple times”
-
-            use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
-
-            inventory::submit! {
-                ::serenity_utils::slash::Command {
-                    guild_id: #guild_id,
-                    name: #name_kebab,
-                    perms: || #perms,
-                    setup: |setup| {
-                        setup.name(#name_kebab);
-                        setup.description(#description);
-                        setup.default_member_permissions(#default_permission);
-                        #(
-                            setup.create_option(|opt| {
-                                #(#create_options)*
-                                opt
-                            });
-                        )*
-                        setup
-                    },
-                    handle: #wrapper_name,
-                }
-            }
-
             ::std::boxed::Box::pin(async move {
                 let fut = #fut;
                 //TODO make sure no extra options are passed (error if !interaction.data.options.is_empty())
                 ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
             })
         }
+
+        #vis const #name_screaming_snake: ::serenity_utils::slash::Command = ::serenity_utils::slash::Command {
+            guild_id: #guild_id,
+            name: #name_kebab,
+            perms: || #perms,
+            setup: |setup| {
+                setup.name(#name_kebab);
+                setup.description(#description);
+                setup.default_member_permissions(#default_permission);
+                #(
+                    setup.create_option(|opt| {
+                        #(#create_options)*
+                        opt
+                    });
+                )*
+                setup
+            },
+            handle: #wrapper_name,
+        };
     })
 }
 
@@ -606,30 +602,64 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as AttributeArgs);
     let mut ipc_mod = None;
+    let mut slash_commands = Vec::default();
     for arg in args {
-        if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { ref path, ref lit, .. })) = arg {
-            if let Some(ident) = path.get_ident() {
+        match arg {
+            NestedMeta::Meta(arg) => if let Some(ident) = arg.path().get_ident() {
                 match &*ident.to_string() {
-                    "ipc" => if let Lit::Str(lit) = lit {
-                        match lit.parse::<Path>() {
-                            Ok(code) => ipc_mod = Some(code),
-                            Err(e) => return e.to_compile_error().into(),
-                        }
-                    } else {
-                        return quote_spanned! {lit.span()=>
-                            compile_error!("the path to the IPC module must be quoted as a string literal");
-                        }.into()
+                    "ipc" => match arg {
+                        Meta::List(_) => return quote_spanned! {arg.span()=>
+                            compile_error!("use `ipc = \"...\"` instead of `ipc(...)`");
+                        }.into(),
+                        Meta::NameValue(MetaNameValue { lit, .. }) => if let Lit::Str(lit) = lit {
+                            match lit.parse::<Path>() {
+                                Ok(code) => ipc_mod = Some(code),
+                                Err(e) => return e.to_compile_error().into(),
+                            }
+                        } else {
+                            return quote_spanned! {lit.span()=>
+                                compile_error!("the path to the IPC module must be quoted as a string literal");
+                            }.into()
+                        },
+                        Meta::Path(_) => return quote_spanned! {arg.span()=>
+                            compile_error!("missing value, use `ipc = \"...\"`");
+                        }.into(),
+                    },
+                    "slash_commands" => match arg {
+                        Meta::List(MetaList { nested, .. }) => for cmd in nested {
+                            match cmd {
+                                NestedMeta::Meta(Meta::Path(path)) if path.get_ident().is_some() => {
+                                    let ident = path.get_ident().expect("just checked");
+                                    slash_commands.push(Ident::new(&ident.to_string().to_case(Case::ScreamingSnake), ident.span()));
+                                }
+                                NestedMeta::Meta(_) => return quote_spanned! {cmd.span()=>
+                                    compile_error!("slash commands must be simple identifiers");
+                                }.into(),
+                                NestedMeta::Lit(_) => return quote_spanned! {cmd.span()=>
+                                    compile_error!("slash commands must be identifiers, not literals"); //TODO if it's a string literal, suggest removing the quotes
+                                }.into(),
+                            }
+                        },
+                        Meta::NameValue(_) => return quote_spanned! {arg.span()=>
+                            compile_error!("use `slash_commands(...)` instead of `slash_commands = ...`");
+                        }.into(),
+                        Meta::Path(_) => return quote_spanned! {arg.span()=>
+                            compile_error!("missing command list, use `slash_commands(...)`");
+                        }.into(),
                     },
                     _ => return quote_spanned! {arg.span()=>
                         compile_error!("unexpected serenity_utils::main attribute argument");
                     }.into(),
                 }
-                continue
-            }
+            } else {
+                return quote_spanned! {arg.span()=>
+                    compile_error!("unexpected serenity_utils::main attribute argument");
+                }.into()
+            },
+            NestedMeta::Lit(_) => return quote_spanned! {arg.span()=>
+                compile_error!("serenity_utils::main attribute arguments must be identifiers, not literals"); //TODO if it's a string literal, suggest removing the quotes
+            }.into(),
         }
-        return quote_spanned! {arg.span()=>
-            compile_error!("unexpected serenity_utils::main attribute argument");
-        }.into()
     }
     let main_fn = parse_macro_input!(item as ItemFn);
     let inner_ret = &main_fn.sig.output;
@@ -673,9 +703,9 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     }
     wrapper_body = quote! {
         #wrapper_body
-        for cmd in inventory::iter::<::serenity_utils::slash::Command> {
-            builder = ::serenity_utils::handler::HandlerMethods::slash_command(builder, cmd.clone());
-        }
+        #(
+            builder = ::serenity_utils::handler::HandlerMethods::slash_command(builder, #slash_commands);
+        )*
         builder.run().await?;
         ::core::result::Result::Ok(())
     };
@@ -693,8 +723,6 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
         };
     };
     TokenStream::from(quote! {
-        use ::serenity_utils::inventory; // inventory macros assume the crate is in scope
-
         async fn main_inner() #inner_ret #inner_body
 
         fn main() #wrapper_ret {

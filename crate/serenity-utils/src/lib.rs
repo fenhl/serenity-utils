@@ -33,7 +33,6 @@ pub use {
 #[doc(hidden)] pub use {
     derive_more,
     futures,
-    inventory,
     parking_lot,
     serenity,
     shlex,

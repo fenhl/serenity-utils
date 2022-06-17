@@ -36,8 +36,6 @@ pub struct Command {
     pub handle: for<'r> fn(&'r Context, ApplicationCommandInteraction) -> crate::handler::Output<'r>,
 }
 
-inventory::collect!(Command);
-
 /// Specifies who has permission to call a slash command.
 ///
 /// Part of a [`Command`].
