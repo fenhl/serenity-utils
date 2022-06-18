@@ -16,7 +16,6 @@ use {
     },
     tokio::sync::Mutex,
     crate::{
-        RwFuture,
         builder::ErrorNotifier,
         shut_down,
     },
@@ -55,7 +54,7 @@ pub trait HandlerMethods {
 /// Use the trait methods on [`HandlerMethods`] to configure this handler.
 #[derive(Default)]
 pub struct Handler {
-    ctx_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<Context>>>>,
+    pub(crate) ctx_tx: Option<Arc<Mutex<Option<tokio::sync::oneshot::Sender<Context>>>>>,
     slash_commands: Vec<crate::slash::Command>,
     pub(crate) intents: GatewayIntents,
     ready: Vec<for<'r> fn(&'r Context, &'r Ready) -> Output<'r>>,
@@ -71,19 +70,11 @@ pub struct Handler {
 }
 
 impl Handler {
-    pub(crate) fn new_with_ctx() -> (Self, RwFuture<Context>) {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        (
-            Self {
-                ctx_tx: Arc::new(Mutex::new(Some(tx))),
-                ..Self::default()
-            },
-            RwFuture::new(async move { rx.await.expect("failed to store handler context") }),
-        )
-    }
-
     pub(crate) fn merge(&mut self, other: Self) {
-        let Handler { ctx_tx: _, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, message, voice_state_update } = other;
+        let Handler { ctx_tx, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, message, voice_state_update } = other;
+        if let Some(ctx_tx) = ctx_tx {
+            self.ctx_tx.get_or_insert(ctx_tx);
+        }
         self.slash_commands.extend(slash_commands);
         self.intents |= intents;
         self.ready.extend(ready);
@@ -193,9 +184,11 @@ impl HandlerMethods for Handler {
 #[serenity::async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, data_about_bot: Ready) {
-        if let Some(tx) = self.ctx_tx.lock().await.take() {
-            if let Err(_) = tx.send(ctx.clone()) {
-                panic!("failed to send context")
+        if let Some(ref tx) = self.ctx_tx {
+            if let Some(tx) = tx.lock().await.take() {
+                if let Err(_) = tx.send(ctx.clone()) {
+                    panic!("failed to send context")
+                }
             }
         }
         let guilds = data_about_bot.user.guilds(&ctx).await.expect("failed to get guilds");

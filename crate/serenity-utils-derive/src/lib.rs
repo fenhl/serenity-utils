@@ -687,18 +687,16 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     if let Some(ref ipc_mod) = ipc_mod {
         wrapper_body = quote! {
             #wrapper_body
-            if builder.has_ctx_fut() {
-                // listen for IPC commands
-                builder = builder.task(|ctx_fut, notify_thread_crash| async move {
-                    match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
-                        Ok(never) => match never {},
-                        Err(e) => {
-                            eprintln!("{}", e);
-                            notify_thread_crash(format!("IPC"), Box::new(e), None).await;
-                        }
+            // listen for IPC commands
+            builder = builder.task(|ctx_fut, notify_thread_crash| async move {
+                match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
+                    Ok(never) => match never {},
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        notify_thread_crash(format!("IPC"), Box::new(e), None).await;
                     }
-                });
-            }
+                }
+            });
         };
     }
     wrapper_body = quote! {
