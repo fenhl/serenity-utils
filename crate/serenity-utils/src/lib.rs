@@ -10,6 +10,7 @@ use {
     },
     serenity::{
         client::bridge::gateway::ShardManager,
+        model::prelude::*,
         prelude::*,
     },
     tokio::{
@@ -135,7 +136,7 @@ impl TypeMapKey for ShardManagerContainer {
 /// Creates a builder for setting up and running a bot.
 ///
 /// An advantage of using this compared to constructing a [`Client`] manually is that the bot will automatically request the required intents.
-pub async fn builder(app_id: u64, token: String) -> serenity::Result<Builder> {
+pub async fn builder(app_id: impl Into<ApplicationId>, token: String) -> serenity::Result<Builder> {
     Builder::new(app_id, token).await
 }
 
