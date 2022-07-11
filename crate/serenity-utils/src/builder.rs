@@ -78,7 +78,8 @@ impl TypeMapKey for UnrecognizedReply {
 /// This type is created using the [`builder`](crate::builder()) function, and used by returning it from a function annotated with [`serenity_utils::main`](crate::main).
 pub struct Builder {
     client: ClientBuilder,
-    ctx_fut: RwFuture<Context>,
+    /// Resolves to the [`Context`] once the bot is ready. This can be used to make the bot do things from other parts of the program.
+    pub ctx_fut: RwFuture<Context>,
     framework: StandardFramework,
     handler: Handler,
     intents: GatewayIntents,
