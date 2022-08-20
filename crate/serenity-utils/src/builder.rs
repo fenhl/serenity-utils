@@ -292,6 +292,11 @@ impl HandlerMethods for Builder {
         self
     }
 
+    fn on_guild_role_create(mut self, f: for<'r> fn(&'r Context, &'r Role) -> handler::Output<'r>) -> Self {
+        self.handler = self.handler.on_guild_role_create(f);
+        self
+    }
+
     fn on_message(mut self, f: for<'r> fn(&'r Context, &'r Message) -> handler::Output<'r>) -> Self {
         self.handler = self.handler.on_message(f);
         self

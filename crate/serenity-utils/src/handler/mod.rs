@@ -45,6 +45,7 @@ pub trait HandlerMethods {
     fn on_guild_member_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>) -> Self;
     fn on_guild_member_update(self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>) -> Self;
     fn on_guild_members_chunk(self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>) -> Self;
+    fn on_guild_role_create(self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self;
     fn on_message(self, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self;
     fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
 }
@@ -65,13 +66,14 @@ pub struct Handler {
     guild_member_removal: Vec<for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>>,
     guild_member_update: Vec<for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>>,
     guild_members_chunk: Vec<for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>>,
+    guild_role_create: Vec<for<'r> fn(&'r Context, &'r Role) -> Output<'r>>,
     message: Vec<for<'r> fn(&'r Context, &'r Message) -> Output<'r>>,
     voice_state_update: Vec<for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>>,
 }
 
 impl Handler {
     pub(crate) fn merge(&mut self, other: Self) {
-        let Handler { ctx_tx, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, message, voice_state_update } = other;
+        let Handler { ctx_tx, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, guild_role_create, message, voice_state_update } = other;
         if let Some(ctx_tx) = ctx_tx {
             self.ctx_tx.get_or_insert(ctx_tx);
         }
@@ -85,6 +87,7 @@ impl Handler {
         self.guild_member_removal.extend(guild_member_removal);
         self.guild_member_update.extend(guild_member_update);
         self.guild_members_chunk.extend(guild_members_chunk);
+        self.guild_role_create.extend(guild_role_create);
         self.message.extend(message);
         self.voice_state_update.extend(voice_state_update);
     }
@@ -165,6 +168,12 @@ impl HandlerMethods for Handler {
 
     fn on_guild_members_chunk(mut self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>) -> Self {
         self.guild_members_chunk.push(f);
+        self
+    }
+
+    fn on_guild_role_create(mut self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self {
+        self.intents |= GatewayIntents::GUILDS;
+        self.guild_role_create.push(f);
         self
     }
 
