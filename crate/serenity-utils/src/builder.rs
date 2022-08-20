@@ -183,6 +183,15 @@ impl Builder {
         self
     }
 
+    /// Adds intents.
+    ///
+    /// This normally doesn't need to be called explicitly since intents required for registered handler methods are set automatically.
+    /// Only use this if you need additional intents for API calls.
+    pub fn add_intents(mut self, new_intents: GatewayIntents) -> Self {
+        self.intents |= new_intents;
+        self
+    }
+
     /// Adds an event handler.
     ///
     /// This can be called multiple times and/or combined with [`HandlerMethods`] trait methods; all methods are called in the order they were added.
