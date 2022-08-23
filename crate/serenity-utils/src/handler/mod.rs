@@ -45,6 +45,7 @@ pub trait HandlerMethods {
     fn on_guild_member_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>) -> Self;
     fn on_guild_member_update(self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>) -> Self;
     fn on_guild_members_chunk(self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>) -> Self;
+    fn on_interaction_create(self, f: for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>) -> Self;
     fn on_guild_role_create(self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self;
     fn on_message(self, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self;
     fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
@@ -66,6 +67,7 @@ pub struct Handler {
     guild_member_removal: Vec<for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>>,
     guild_member_update: Vec<for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>>,
     guild_members_chunk: Vec<for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>>,
+    interaction_create: Vec<for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>>,
     guild_role_create: Vec<for<'r> fn(&'r Context, &'r Role) -> Output<'r>>,
     message: Vec<for<'r> fn(&'r Context, &'r Message) -> Output<'r>>,
     voice_state_update: Vec<for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>>,
@@ -73,7 +75,7 @@ pub struct Handler {
 
 impl Handler {
     pub(crate) fn merge(&mut self, other: Self) {
-        let Handler { ctx_tx, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, guild_role_create, message, voice_state_update } = other;
+        let Handler { ctx_tx, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, interaction_create, guild_role_create, message, voice_state_update } = other;
         if let Some(ctx_tx) = ctx_tx {
             self.ctx_tx.get_or_insert(ctx_tx);
         }
@@ -87,6 +89,7 @@ impl Handler {
         self.guild_member_removal.extend(guild_member_removal);
         self.guild_member_update.extend(guild_member_update);
         self.guild_members_chunk.extend(guild_members_chunk);
+        self.interaction_create.extend(interaction_create);
         self.guild_role_create.extend(guild_role_create);
         self.message.extend(message);
         self.voice_state_update.extend(voice_state_update);
@@ -171,6 +174,11 @@ impl HandlerMethods for Handler {
         self
     }
 
+    fn on_interaction_create(mut self, f: for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>) -> Self {
+        self.interaction_create.push(f);
+        self
+    }
+
     fn on_guild_role_create(mut self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self {
         self.intents |= GatewayIntents::GUILDS;
         self.guild_role_create.push(f);
@@ -209,7 +217,7 @@ impl EventHandler for Handler {
         for f in &self.ready {
             if let Err(e) = f(&ctx, &data_about_bot).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `ready` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `ready` event: `{e:?}`")).await;
                 }
             }
         }
@@ -219,7 +227,7 @@ impl EventHandler for Handler {
         for f in &self.guild_ban_addition {
             if let Err(e) = f(&ctx, guild_id, &banned_user).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_ban_addition` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_ban_addition` event: `{e:?}`")).await;
                 }
             }
         }
@@ -229,7 +237,7 @@ impl EventHandler for Handler {
         for f in &self.guild_ban_removal {
             if let Err(e) = f(&ctx, guild_id, &unbanned_user).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_ban_removal` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_ban_removal` event: `{e:?}`")).await;
                 }
             }
         }
@@ -238,13 +246,13 @@ impl EventHandler for Handler {
     async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
         if let Err(e) = self.setup_slash_commands(&ctx, guild.id).await {
             if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                let _ = error_notifier.say(&ctx, format!("error setting up slash commands: `{:?}`", e)).await;
+                let _ = error_notifier.say(&ctx, format!("error setting up slash commands: `{e:?}`")).await;
             }
         }
         for f in &self.guild_create {
             if let Err(e) = f(&ctx, &guild, is_new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_create` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_create` event: `{e:?}`")).await;
                 }
             }
         }
@@ -254,7 +262,7 @@ impl EventHandler for Handler {
         for f in &self.guild_member_addition {
             if let Err(e) = f(&ctx, &new_member).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_addition` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_addition` event: `{e:?}`")).await;
                 }
             }
         }
@@ -264,7 +272,7 @@ impl EventHandler for Handler {
         for f in &self.guild_member_removal {
             if let Err(e) = f(&ctx, guild_id, &user, member_data_if_available.as_ref()).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_removal` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_removal` event: `{e:?}`")).await;
                 }
             }
         }
@@ -274,7 +282,7 @@ impl EventHandler for Handler {
         for f in &self.guild_member_update {
             if let Err(e) = f(&ctx, old_if_available.as_ref(), &new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_update` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_update` event: `{e:?}`")).await;
                 }
             }
         }
@@ -284,20 +292,27 @@ impl EventHandler for Handler {
         for f in &self.guild_members_chunk {
             if let Err(e) = f(&ctx, &chunk).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_members_chunk` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `guild_members_chunk` event: `{e:?}`")).await;
                 }
             }
         }
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        for f in &self.interaction_create {
+            if let Err(e) = f(&ctx, &interaction).await {
+                if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
+                    let _ = error_notifier.say(&ctx, format!("error in `interaction_create` event: `{e:?}`")).await;
+                }
+            }
+        }
         if let Interaction::ApplicationCommand(interaction) = interaction {
             if let Some(guild_id) = interaction.guild_id {
                 for cmd in &self.slash_commands {
                     if cmd.guild_id == guild_id && cmd.name == interaction.data.name {
                         if let Err(e) = (cmd.handle)(&ctx, interaction).await {
                             if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                                let _ = error_notifier.say(&ctx, format!("error in handler for /{}: `{:?}`", cmd.name, e)).await;
+                                let _ = error_notifier.say(&ctx, format!("error in handler for /{}: `{e:?}`", cmd.name)).await;
                             }
                         }
                         break
@@ -311,7 +326,7 @@ impl EventHandler for Handler {
         for f in &self.message {
             if let Err(e) = f(&ctx, &new_message).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `message` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `message` event: `{e:?}`")).await;
                 }
             }
         }
@@ -321,7 +336,7 @@ impl EventHandler for Handler {
         for f in &self.voice_state_update {
             if let Err(e) = f(&ctx, old.as_ref(), &new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `voice_state_update` event: `{:?}`", e)).await;
+                    let _ = error_notifier.say(&ctx, format!("error in `voice_state_update` event: `{e:?}`")).await;
                 }
             }
         }

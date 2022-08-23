@@ -1,6 +1,6 @@
 [package]
 name = "serenity-utils"
-version = "0.9.3"
+version = "0.9.4"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
 
@@ -23,7 +23,7 @@ version = "0.11"
 features = ["unstable_discord_api"]
 
 [dependencies.serenity-utils-derive]
-version = "=0.9.3"
+version = "=0.9.4"
 path = "../serenity-utils-derive"
 
 [dependencies.tokio]

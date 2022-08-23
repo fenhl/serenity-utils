@@ -692,7 +692,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
                     Ok(never) => match never {},
                     Err(e) => {
-                        eprintln!("{}", e);
+                        eprintln!("{e}");
                         notify_thread_crash(format!("IPC"), Box::new(e), None).await;
                     }
                 }
