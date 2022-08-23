@@ -96,6 +96,7 @@ impl Handler {
     }
 
     async fn setup_slash_commands(&self, ctx: &Context, guild_id: GuildId) -> serenity::Result<()> {
+        if self.slash_commands.is_empty() { return Ok(()) }
         let existing_commands = guild_id.get_application_commands(ctx).await?;
         let mut all_perms = CreateApplicationCommandsPermissions::default();
         for cmd in &self.slash_commands {
