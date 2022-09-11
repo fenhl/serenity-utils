@@ -21,7 +21,10 @@ use {
             macros::help,
         },
         http::Http,
-        model::prelude::*,
+        model::{
+            application::interaction::Interaction,
+            prelude::*,
+        },
         prelude::*,
     },
     tokio::time::sleep,
@@ -302,8 +305,8 @@ impl HandlerMethods for Builder {
         self
     }
 
-    fn on_message(mut self, f: for<'r> fn(&'r Context, &'r Message) -> handler::Output<'r>) -> Self {
-        self.handler = self.handler.on_message(f);
+    fn on_message(mut self, require_content: bool, f: for<'r> fn(&'r Context, &'r Message) -> handler::Output<'r>) -> Self {
+        self.handler = self.handler.on_message(require_content, f);
         self
     }
 

@@ -13,7 +13,10 @@ use {
         prelude::*,
     },
 };
-pub use serenity::model::interactions::application_command::*;
+pub use serenity::model::application::interaction::{
+    MessageFlags,
+    application_command::*,
+};
 
 /// A slash command.
 ///
@@ -116,7 +119,7 @@ impl<'a> Responder<'a> for NoResponse {
 impl<'a> Responder<'a> for () {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {
-            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content("success").flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
+            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content("success").flags(MessageFlags::EPHEMERAL))).await?;
             Ok(())
         })
     }
@@ -125,7 +128,7 @@ impl<'a> Responder<'a> for () {
 impl<'a> Responder<'a> for String {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {
-            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content(self).flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
+            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content(self).flags(MessageFlags::EPHEMERAL))).await?;
             Ok(())
         })
     }
@@ -134,7 +137,7 @@ impl<'a> Responder<'a> for String {
 impl<'a, 'b: 'a> Responder<'a> for &'b str {
     fn respond(self, ctx: &'a Context, interaction: &'a ApplicationCommandInteraction) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>> {
         Box::pin(async move {
-            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content(self).flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL))).await?;
+            interaction.create_interaction_response(ctx, |builder| builder.interaction_response_data(|data| data.content(self).flags(MessageFlags::EPHEMERAL))).await?;
             Ok(())
         })
     }

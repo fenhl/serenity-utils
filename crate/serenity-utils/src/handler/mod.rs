@@ -9,7 +9,10 @@ use {
     serenity::{
         builder::CreateApplicationCommandsPermissions,
         model::{
-            interactions::application_command::ApplicationCommandPermissionType,
+            application::{
+                command::CommandPermissionType,
+                interaction::Interaction,
+            },
             prelude::*,
         },
         prelude::*,
@@ -47,7 +50,7 @@ pub trait HandlerMethods {
     fn on_guild_members_chunk(self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>) -> Self;
     fn on_interaction_create(self, f: for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>) -> Self;
     fn on_guild_role_create(self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self;
-    fn on_message(self, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self;
+    fn on_message(self, require_content: bool, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self;
     fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
 }
 
@@ -111,8 +114,8 @@ impl Handler {
                 all_perms.create_application_command(|cmd_perms| {
                     let perms = (cmd.perms)();
                     cmd_perms.id(cmd_id.0);
-                    for role in perms.roles { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::Role).id(role.0).permission(true)); }
-                    for user in perms.users { cmd_perms.create_permissions(|p| p.kind(ApplicationCommandPermissionType::User).id(user.0).permission(true)); }
+                    for role in perms.roles { cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::Role).id(role.0).permission(true)); }
+                    for user in perms.users { cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::User).id(user.0).permission(true)); }
                     cmd_perms
                 });
             }
@@ -186,8 +189,9 @@ impl HandlerMethods for Handler {
         self
     }
 
-    fn on_message(mut self, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self {
+    fn on_message(mut self, require_content: bool, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self {
         self.intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES; //TODO allow customizing which to receive?
+        if require_content { self.intents |= GatewayIntents::MESSAGE_CONTENT }
         self.message.push(f);
         self
     }
