@@ -441,7 +441,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                                 interaction.create_interaction_response(ctx, |resp| resp
                                     .interaction_response_data(|data| data
                                         .content("This command only works in a server.")
-                                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
+                                        .flags(::serenity_utils::slash::MessageFlags::EPHEMERAL)
                                     )
                                 ).await?;
                                 return ::core::result::Result::Ok(())
@@ -459,11 +459,11 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                                     compile_error!("slash command option must be named");
                                 }.into()
                             };
-                            create_option.push(quote!(opt.kind(::serenity_utils::slash::ApplicationCommandOptionType::Role);));
+                            create_option.push(quote!(opt.kind(::serenity_utils::slash::CommandOptionType::Role);));
                             create_option.push(quote!(opt.required(true);));
                             break (true, quote!({
                                 let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
-                                if let ::serenity_utils::slash::ApplicationCommandInteractionDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::ApplicationCommandInteractionDataOptionValue::Role(role)), .. } = option {
+                                if let ::serenity_utils::slash::CommandDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::CommandDataOptionValue::Role(role)), .. } = option {
                                     if name == #opt_name {
                                         role
                                     } else {
@@ -486,11 +486,11 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                                     compile_error!("slash command option must be named");
                                 }.into()
                             };
-                            create_option.push(quote!(opt.kind(::serenity_utils::slash::ApplicationCommandOptionType::Integer);));
+                            create_option.push(quote!(opt.kind(::serenity_utils::slash::CommandOptionType::Integer);));
                             create_option.push(quote!(opt.required(true);));
                             break (true, quote!({
                                 let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
-                                if let ::serenity_utils::slash::ApplicationCommandInteractionDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::ApplicationCommandInteractionDataOptionValue::Integer(n)), .. } = option {
+                                if let ::serenity_utils::slash::CommandDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::CommandDataOptionValue::Integer(n)), .. } = option {
                                     if name == #opt_name {
                                         if #range_check {
                                             n
@@ -533,7 +533,7 @@ pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
                                 interaction.create_interaction_response(ctx, |resp| resp
                                     .interaction_response_data(|data| data
                                         .content("This command only works in a server.")
-                                        .flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL)
+                                        .flags(::serenity_utils::slash::MessageFlags::EPHEMERAL)
                                     )
                                 ).await?;
                                 return ::core::result::Result::Ok(())
@@ -692,7 +692,7 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                 match #ipc_mod::listen(ctx_fut, &notify_thread_crash).await {
                     Ok(never) => match never {},
                     Err(e) => {
-                        eprintln!("{e}");
+                        eprintln!("{}", e);
                         notify_thread_crash(format!("IPC"), Box::new(e), None).await;
                     }
                 }

@@ -13,9 +13,12 @@ use {
         prelude::*,
     },
 };
-pub use serenity::model::application::interaction::{
-    MessageFlags,
-    application_command::*,
+pub use serenity::model::application::{
+    command::*,
+    interaction::{
+        MessageFlags,
+        application_command::*,
+    },
 };
 
 /// A slash command.
