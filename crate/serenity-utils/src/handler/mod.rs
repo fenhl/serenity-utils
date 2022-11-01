@@ -102,6 +102,7 @@ impl Handler {
         if self.slash_commands.is_empty() { return Ok(()) }
         let existing_commands = guild_id.get_application_commands(ctx).await?;
         let mut all_perms = CreateApplicationCommandsPermissions::default();
+        let mut set_perms = false;
         for cmd in &self.slash_commands {
             if cmd.guild_id == guild_id {
                 let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|iter_cmd| iter_cmd.name == cmd.name) {
@@ -114,13 +115,15 @@ impl Handler {
                 all_perms.create_application_command(|cmd_perms| {
                     let perms = (cmd.perms)();
                     cmd_perms.id(cmd_id.0);
-                    for role in perms.roles { cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::Role).id(role.0).permission(true)); }
-                    for user in perms.users { cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::User).id(user.0).permission(true)); }
+                    for role in perms.roles { set_perms = true; cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::Role).id(role.0).permission(true)); }
+                    for user in perms.users { set_perms = true; cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::User).id(user.0).permission(true)); }
                     cmd_perms
                 });
             }
         }
-        guild_id.set_application_commands_permissions(ctx, |p| { *p = all_perms; p }).await?;
+        if set_perms {
+            guild_id.set_application_commands_permissions(ctx, |p| { *p = all_perms; p }).await?;
+        }
         Ok(())
     }
 }
