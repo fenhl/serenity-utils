@@ -1,8 +1,8 @@
 [package]
 name = "serenity-utils"
-version = "0.10.0"
-authors = ["Fenhl <fenhl@fenhl.net>"]
-edition = "2021"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
 
 [lib]
 name = "serenity_utils"
