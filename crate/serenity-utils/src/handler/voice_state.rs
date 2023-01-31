@@ -78,7 +78,7 @@ pub fn voice_state_exporter<M: ExporterMethods>() -> Handler {
             let ignored_channels = M::ignored_channels(ctx).await?;
             let (voice_states, notify_start, chan_id) = {
                 let mut data = ctx.data.write().await;
-                let voice_states = data.get_mut::<VoiceStates>().expect("missing voice states map");
+                let voice_states = data.entry::<VoiceStates>().or_default();
                 let VoiceStates(ref mut chan_map) = voice_states;
                 let was_empty = chan_map.iter().all(|(channel_id, (_, members))| members.is_empty() || ignored_channels.contains(channel_id));
                 let mut empty_channels = Vec::default();
