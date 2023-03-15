@@ -7,14 +7,8 @@ use {
         sync::Arc,
     },
     serenity::{
-        builder::CreateApplicationCommandsPermissions,
-        model::{
-            application::{
-                command::CommandPermissionType,
-                interaction::Interaction,
-            },
-            prelude::*,
-        },
+        all::Interaction,
+        model::prelude::*,
         prelude::*,
     },
     tokio::sync::Mutex,
@@ -35,18 +29,13 @@ pub(crate) type Output<'r> = Pin<Box<dyn Future<Output = Result<(), Box<dyn std:
 
 #[allow(missing_docs)] //TODO link to equivalent methods on serenity?
 pub trait HandlerMethods {
-    /// Adds a slash command.
-    ///
-    /// The command will be automatically created or updated each time the bot connects to Discord. Note that commands not specified will *not* be deleted.
-    fn slash_command(self, cmd: crate::slash::Command) -> Self;
-
     fn on_ready(self, f: for<'r> fn(&'r Context, &'r Ready) -> Output<'r>) -> Self;
     fn on_guild_ban_addition(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
     fn on_guild_ban_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self;
-    fn on_guild_create(self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, bool) -> Output<'r>) -> Self;
+    fn on_guild_create(self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, Option<bool>) -> Output<'r>) -> Self;
     fn on_guild_member_addition(self, f: for<'r> fn(&'r Context, &'r Member) -> Output<'r>) -> Self;
     fn on_guild_member_removal(self, f: for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>) -> Self;
-    fn on_guild_member_update(self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>) -> Self;
+    fn on_guild_member_update(self, f: for<'r> fn(&'r Context, Option<&'r Member>, Option<&'r Member>, &'r GuildMemberUpdateEvent) -> Output<'r>) -> Self;
     fn on_guild_members_chunk(self, f: for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>) -> Self;
     fn on_interaction_create(self, f: for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>) -> Self;
     fn on_guild_role_create(self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self;
@@ -60,15 +49,14 @@ pub trait HandlerMethods {
 #[derive(Default)]
 pub struct Handler {
     pub(crate) ctx_tx: Option<Arc<Mutex<Option<tokio::sync::oneshot::Sender<Context>>>>>,
-    slash_commands: Vec<crate::slash::Command>,
     pub(crate) intents: GatewayIntents,
     ready: Vec<for<'r> fn(&'r Context, &'r Ready) -> Output<'r>>,
     guild_ban_addition: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
     guild_ban_removal: Vec<for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>>,
-    guild_create: Vec<for<'r> fn(&'r Context, &'r Guild, bool) -> Output<'r>>,
+    guild_create: Vec<for<'r> fn(&'r Context, &'r Guild, Option<bool>) -> Output<'r>>,
     guild_member_addition: Vec<for<'r> fn(&'r Context, &'r Member) -> Output<'r>>,
     guild_member_removal: Vec<for<'r> fn(&'r Context, GuildId, &'r User, Option<&'r Member>) -> Output<'r>>,
-    guild_member_update: Vec<for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>>,
+    guild_member_update: Vec<for<'r> fn(&'r Context, Option<&'r Member>, Option<&'r Member>, &'r GuildMemberUpdateEvent) -> Output<'r>>,
     guild_members_chunk: Vec<for<'r> fn(&'r Context, &'r GuildMembersChunkEvent) -> Output<'r>>,
     interaction_create: Vec<for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>>,
     guild_role_create: Vec<for<'r> fn(&'r Context, &'r Role) -> Output<'r>>,
@@ -78,11 +66,10 @@ pub struct Handler {
 
 impl Handler {
     pub(crate) fn merge(&mut self, other: Self) {
-        let Handler { ctx_tx, slash_commands, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, interaction_create, guild_role_create, message, voice_state_update } = other;
+        let Handler { ctx_tx, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, interaction_create, guild_role_create, message, voice_state_update } = other;
         if let Some(ctx_tx) = ctx_tx {
             self.ctx_tx.get_or_insert(ctx_tx);
         }
-        self.slash_commands.extend(slash_commands);
         self.intents |= intents;
         self.ready.extend(ready);
         self.guild_ban_addition.extend(guild_ban_addition);
@@ -97,43 +84,9 @@ impl Handler {
         self.message.extend(message);
         self.voice_state_update.extend(voice_state_update);
     }
-
-    async fn setup_slash_commands(&self, ctx: &Context, guild_id: GuildId) -> serenity::Result<()> {
-        if self.slash_commands.is_empty() { return Ok(()) }
-        let existing_commands = guild_id.get_application_commands(ctx).await?;
-        let mut all_perms = CreateApplicationCommandsPermissions::default();
-        let mut set_perms = false;
-        for cmd in &self.slash_commands {
-            if cmd.guild_id == guild_id {
-                let cmd_id = if let Some(existing_command) = existing_commands.iter().find(|iter_cmd| iter_cmd.name == cmd.name) {
-                    //TODO only update if changed
-                    guild_id.edit_application_command(ctx, existing_command.id, cmd.setup).await?;
-                    existing_command.id
-                } else {
-                    guild_id.create_application_command(ctx, cmd.setup).await?.id
-                };
-                all_perms.create_application_command(|cmd_perms| {
-                    let perms = (cmd.perms)();
-                    cmd_perms.id(cmd_id.0);
-                    for role in perms.roles { set_perms = true; cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::Role).id(role.0).permission(true)); }
-                    for user in perms.users { set_perms = true; cmd_perms.create_permissions(|p| p.kind(CommandPermissionType::User).id(user.0).permission(true)); }
-                    cmd_perms
-                });
-            }
-        }
-        if set_perms {
-            guild_id.set_application_commands_permissions(ctx, |p| { *p = all_perms; p }).await?;
-        }
-        Ok(())
-    }
 }
 
 impl HandlerMethods for Handler {
-    fn slash_command(mut self, cmd: crate::slash::Command) -> Self {
-        self.slash_commands.push(cmd);
-        self
-    }
-
     fn on_ready(mut self, f: for<'r> fn(&'r Context, &'r Ready) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'r>>) -> Self {
         self.ready.push(f);
         self
@@ -151,7 +104,7 @@ impl HandlerMethods for Handler {
         self
     }
 
-    fn on_guild_create(mut self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, bool) -> Output<'r>) -> Self {
+    fn on_guild_create(mut self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, Option<bool>) -> Output<'r>) -> Self {
         self.intents |= GatewayIntents::GUILDS;
         if require_members { self.intents |= GatewayIntents::GUILD_PRESENCES }
         self.guild_create.push(f);
@@ -170,7 +123,7 @@ impl HandlerMethods for Handler {
         self
     }
 
-    fn on_guild_member_update(mut self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> Output<'r>) -> Self {
+    fn on_guild_member_update(mut self, f: for<'r> fn(&'r Context, Option<&'r Member>, Option<&'r Member>, &'r GuildMemberUpdateEvent) -> Output<'r>) -> Self {
         self.intents |= GatewayIntents::GUILD_MEMBERS;
         self.guild_member_update.push(f);
         self
@@ -251,12 +204,7 @@ impl EventHandler for Handler {
         }
     }
 
-    async fn guild_create(&self, ctx: Context, guild: Guild, is_new: bool) {
-        if let Err(e) = self.setup_slash_commands(&ctx, guild.id).await {
-            if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                let _ = error_notifier.say(&ctx, format!("error setting up slash commands: `{e:?}`")).await;
-            }
-        }
+    async fn guild_create(&self, ctx: Context, guild: Guild, is_new: Option<bool>) {
         for f in &self.guild_create {
             if let Err(e) = f(&ctx, &guild, is_new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
@@ -286,9 +234,9 @@ impl EventHandler for Handler {
         }
     }
 
-    async fn guild_member_update(&self, ctx: Context, old_if_available: Option<Member>, new: Member) {
+    async fn guild_member_update(&self, ctx: Context, old_if_available: Option<Member>, new: Option<Member>, event: GuildMemberUpdateEvent) {
         for f in &self.guild_member_update {
-            if let Err(e) = f(&ctx, old_if_available.as_ref(), &new).await {
+            if let Err(e) = f(&ctx, old_if_available.as_ref(), new.as_ref(), &event).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
                     let _ = error_notifier.say(&ctx, format!("error in `guild_member_update` event: `{e:?}`")).await;
                 }
@@ -311,20 +259,6 @@ impl EventHandler for Handler {
             if let Err(e) = f(&ctx, &interaction).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
                     let _ = error_notifier.say(&ctx, format!("error in `interaction_create` event: `{e:?}`")).await;
-                }
-            }
-        }
-        if let Interaction::ApplicationCommand(interaction) = interaction {
-            if let Some(guild_id) = interaction.guild_id {
-                for cmd in &self.slash_commands {
-                    if cmd.guild_id == guild_id && cmd.name == interaction.data.name {
-                        if let Err(e) = (cmd.handle)(&ctx, interaction).await {
-                            if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                                let _ = error_notifier.say(&ctx, format!("error in handler for /{}: `{e:?}`", cmd.name)).await;
-                            }
-                        }
-                        break
-                    }
                 }
             }
         }

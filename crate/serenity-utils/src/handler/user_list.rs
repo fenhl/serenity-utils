@@ -15,6 +15,10 @@ use {
     },
 };
 
+#[derive(Debug, thiserror::Error)]
+#[error("received guild member update event for uncached member")]
+struct GuildMemberUpdateError;
+
 /// Defines callbacks for [`user_list_exporter`].
 pub trait ExporterMethods {
     /// A member has been added or modified and its record should be inserted into or updated in the underlying database.
@@ -35,7 +39,7 @@ pub fn user_list_exporter<M: ExporterMethods>() -> Handler {
         .on_guild_create(true, |ctx, guild, _| M::replace_all(ctx, guild.members.values().collect()))
         .on_guild_member_addition(|ctx, member| M::upsert(ctx, member))
         .on_guild_member_removal(|ctx, guild_id, user, _| M::remove(ctx, user.id, guild_id))
-        .on_guild_member_update(|ctx, _, member| M::upsert(ctx, member))
+        .on_guild_member_update(|ctx, _, member, _| Box::pin(async move { M::upsert(ctx, member.ok_or(GuildMemberUpdateError)?).await }))
         .on_guild_members_chunk(|ctx, chunk| Box::pin(async move {
             for member in chunk.members.values() {
                 M::upsert(ctx, member).await?;

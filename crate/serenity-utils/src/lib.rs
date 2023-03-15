@@ -27,7 +27,6 @@ pub use {
     serenity_utils_derive::{
         ipc,
         main,
-        slash_command,
     },
     crate::builder::Builder,
 };
@@ -43,7 +42,6 @@ pub use {
 
 pub mod builder;
 pub mod handler;
-pub mod slash;
 
 #[derive(Debug)]
 enum RwFutureData<T: Send + Sync> {
@@ -142,7 +140,7 @@ pub async fn builder(app_id: impl Into<ApplicationId>, token: String) -> serenit
 
 /// Utility function to shut down all shards.
 pub async fn shut_down(ctx: &Context) {
-    ctx.invisible().await; // hack to prevent the bot showing as online when it's not
+    ctx.invisible(); // hack to prevent the bot showing as online when it's not
     let data = ctx.data.read().await;
     let mut shard_manager = data.get::<ShardManagerContainer>().expect("missing shard manager").lock().await;
     shard_manager.shutdown_all().await;

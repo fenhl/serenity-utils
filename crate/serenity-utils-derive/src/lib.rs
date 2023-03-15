@@ -3,15 +3,7 @@
 #![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_qualifications, warnings)]
 
 use {
-    std::ops::RangeInclusive,
-    convert_case::{
-        Case,
-        Casing as _,
-    },
-    if_chain::if_chain,
-    itertools::Itertools as _,
     proc_macro::TokenStream,
-    proc_macro2::Span,
     quote::{
         quote,
         quote_spanned,
@@ -19,27 +11,19 @@ use {
     syn::{
         AttributeArgs,
         FnArg,
-        Ident,
         ItemConst,
         ItemFn,
         ItemUse,
         Lit,
-        LitInt,
-        LitStr,
         Meta,
-        MetaList,
         MetaNameValue,
         NestedMeta,
-        Pat,
-        PatIdent,
-        PatType,
         Path,
         PathArguments,
         ReturnType,
         Token,
         Type,
         TypePath,
-        TypeReference,
         parse::{
             Parse,
             ParseStream,
@@ -47,7 +31,6 @@ use {
         },
         parse_macro_input,
         parse_quote,
-        punctuated::Punctuated,
         spanned::Spanned as _,
     },
 };
@@ -326,283 +309,10 @@ pub fn ipc(input: TokenStream) -> TokenStream {
     })
 }
 
-enum SlashCommandDirective {
-    Description(String),
-    Range(RangeInclusive<i32>),
-}
-
-impl Parse for SlashCommandDirective {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let kind = input.parse::<Ident>()?;
-        input.parse::<Token![=]>()?;
-        Ok(match &*kind.to_string() {
-            "description" => Self::Description(input.parse::<LitStr>()?.value()),
-            "range" => {
-                let lower = input.parse::<LitInt>()?.base10_parse()?;
-                input.parse::<Token![..=]>()?;
-                let upper = input.parse::<LitInt>()?.base10_parse()?;
-                Self::Range(lower..=upper)
-            }
-            _ => return Err(syn::Error::new(kind.span(), "unknown slash command directive")),
-        })
-    }
-}
-
-#[proc_macro_attribute]
-pub fn slash_command(args: TokenStream, item: TokenStream) -> TokenStream {
-    let mut args = parse_macro_input!(args as AttributeArgs);
-    if args.is_empty() { return quote!(compile_error!("must provide guild ID as argument");).into() }
-    let guild_id = args.remove(0);
-    let mut default_permission = quote!(::serenity_utils::serenity::model::permissions::Permissions::ADMINISTRATOR);
-    let mut perms = quote!(::serenity_utils::slash::CommandPermissions::default());
-    for arg in args {
-        if_chain! {
-            if let NestedMeta::Meta(Meta::List(MetaList { ref path, ref nested, .. })) = arg;
-            if path.is_ident("allow");
-            then {
-                for perm in nested {
-                    perms = quote!((#perms | #perm));
-                }
-                continue
-            }
-        }
-        if_chain! {
-            if let NestedMeta::Meta(Meta::Path(ref path)) = arg;
-            if path.is_ident("allow_all");
-            then {
-                default_permission = quote!(::serenity_utils::serenity::model::permissions::Permissions::empty());
-                continue
-            }
-        }
-        return quote_spanned! {arg.span()=>
-            compile_error!("unexpected #[serenity_utils::slash_command] argument");
-        }.into()
-    }
-    let mut cmd_fn = parse_macro_input!(item as ItemFn);
-    let name_snake = &cmd_fn.sig.ident;
-    let name_kebab = name_snake.to_string().to_case(Case::Kebab);
-    let name_screaming_snake = Ident::new(&name_snake.to_string().to_case(Case::ScreamingSnake), name_snake.span());
-    let description = if let Ok(doc_comment) = cmd_fn.attrs.iter().filter(|attr| attr.path.is_ident("doc")).exactly_one() {
-        match doc_comment.parse_meta() {
-            Ok(Meta::NameValue(MetaNameValue { lit: Lit::Str(comment), .. })) => comment,
-            Ok(_) => return quote_spanned! {doc_comment.span()=>
-                compile_error!("unexpected format for doc comment");
-            }.into(),
-            Err(e) => return e.into_compile_error().into(),
-        }
-    } else {
-        return quote!(compile_error!("slash command description is required");).into()
-    };
-    let mut create_options = Vec::default();
-    let mut fn_args = Vec::default();
-    for arg in &mut cmd_fn.sig.inputs {
-        match arg {
-            FnArg::Typed(PatType { attrs, pat, ty, .. }) => {
-                let opt_name = if let Pat::Ident(PatIdent { ref ident, .. }) = **pat {
-                    Some(ident.to_string())
-                } else {
-                    None
-                };
-                let mut range_check = quote!(true);
-                let mut create_option = Vec::default();
-                //TODO use Vec::drain_filter when stabilized
-                let mut i = 0;
-                while i < attrs.len() {
-                    if attrs[i].path.is_ident("serenity_utils") {
-                        match attrs.remove(i).parse_args_with(Punctuated::<SlashCommandDirective, Token![,]>::parse_terminated) {
-                            Ok(directives) => for directive in directives {
-                                match directive {
-                                    SlashCommandDirective::Description(desc) => create_option.push(quote!(opt.description(#desc);)),
-                                    SlashCommandDirective::Range(range) => {
-                                        let lower = i64::from(*range.start());
-                                        let upper = i64::from(*range.end());
-                                        range_check = quote!((#lower..=#upper).contains(&n));
-                                        for n in range {
-                                            let n_str = n.to_string();
-                                            create_option.push(quote!(opt.add_int_choice(#n_str, #n);));
-                                        }
-                                    }
-                                }
-                            },
-                            Err(e) => return e.into_compile_error().into(),
-                        }
-                    } else {
-                        i += 1;
-                    }
-                }
-                let (register_option, fn_arg) = loop { //HACK: use a loop with multiple if chains breaking out of it to avoid multiple or nested else clauses
-                    if_chain! {
-                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
-                        if path.is_ident("GuildId");
-                        then {
-                            break (false, quote!(if let Some(guild_id) = interaction.guild_id {
-                                guild_id
-                            } else {
-                                interaction.create_interaction_response(ctx, |resp| resp
-                                    .interaction_response_data(|data| data
-                                        .content("This command only works in a server.")
-                                        .flags(::serenity_utils::slash::MessageFlags::EPHEMERAL)
-                                    )
-                                ).await?;
-                                return ::core::result::Result::Ok(())
-                            }))
-                        }
-                    }
-                    if_chain! {
-                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
-                        if path.is_ident("Role");
-                        then {
-                            let opt_name = if let Some(ref opt_name) = opt_name {
-                                opt_name
-                            } else {
-                                return quote_spanned! {pat.span()=>
-                                    compile_error!("slash command option must be named");
-                                }.into()
-                            };
-                            create_option.push(quote!(opt.kind(::serenity_utils::slash::CommandOptionType::Role);));
-                            create_option.push(quote!(opt.required(true);));
-                            break (true, quote!({
-                                let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
-                                if let ::serenity_utils::slash::CommandDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::CommandDataOptionValue::Role(role)), .. } = option {
-                                    if name == #opt_name {
-                                        role
-                                    } else {
-                                        return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionName.into())
-                                    }
-                                } else {
-                                    return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionType.into())
-                                }
-                            }))
-                        }
-                    }
-                    if_chain! {
-                        if let Type::Path(TypePath { qself: None, ref path }) = **ty;
-                        if path.is_ident("i64");
-                        then {
-                            let opt_name = if let Some(ref opt_name) = opt_name {
-                                opt_name
-                            } else {
-                                return quote_spanned! {pat.span()=>
-                                    compile_error!("slash command option must be named");
-                                }.into()
-                            };
-                            create_option.push(quote!(opt.kind(::serenity_utils::slash::CommandOptionType::Integer);));
-                            create_option.push(quote!(opt.required(true);));
-                            break (true, quote!({
-                                let option = interaction.data.options.remove(0); //TODO error instead of panicking on missing option
-                                if let ::serenity_utils::slash::CommandDataOption { name, resolved: ::core::option::Option::Some(::serenity_utils::slash::CommandDataOptionValue::Integer(n)), .. } = option {
-                                    if name == #opt_name {
-                                        if #range_check {
-                                            n
-                                        } else {
-                                            return ::core::result::Result::Err(::serenity_utils::slash::ParseError::IntegerRange.into())
-                                        }
-                                    } else {
-                                        return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionName.into())
-                                    }
-                                } else {
-                                    return ::core::result::Result::Err(::serenity_utils::slash::ParseError::OptionType.into())
-                                }
-                            }))
-                        }
-                    }
-                    if_chain! {
-                        if let Type::Reference(TypeReference { mutability: None, ref elem, .. }) = **ty;
-                        if let Type::Path(TypePath { qself: None, ref path }) = **elem;
-                        if path.is_ident("ApplicationCommandInteraction");
-                        then {
-                            break (false, quote!(&interaction))
-                        }
-                    }
-                    if_chain! {
-                        if let Type::Reference(TypeReference { mutability: None, ref elem, .. }) = **ty;
-                        if let Type::Path(TypePath { qself: None, ref path }) = **elem;
-                        if path.is_ident("Context");
-                        then {
-                            break (false, quote!(ctx))
-                        }
-                    }
-                    if_chain! {
-                        if let Type::Reference(TypeReference { mutability, ref elem, .. }) = **ty;
-                        if let Type::Path(TypePath { qself: None, ref path }) = **elem;
-                        if path.is_ident("Member");
-                        then {
-                            break (false, quote!(if let Some(ref #mutability member) = interaction.member {
-                                member
-                            } else {
-                                interaction.create_interaction_response(ctx, |resp| resp
-                                    .interaction_response_data(|data| data
-                                        .content("This command only works in a server.")
-                                        .flags(::serenity_utils::slash::MessageFlags::EPHEMERAL)
-                                    )
-                                ).await?;
-                                return ::core::result::Result::Ok(())
-                            }))
-                        }
-                    }
-                    return quote_spanned! {ty.span()=>
-                        compile_error!("unsupported argument type for slash command");
-                    }.into()
-                };
-                fn_args.push(fn_arg);
-                if register_option {
-                    let opt_name = if let Some(opt_name) = opt_name {
-                        opt_name
-                    } else {
-                        return quote_spanned! {pat.span()=>
-                            compile_error!("slash command option must be named");
-                        }.into()
-                    };
-                    create_option.push(quote!(opt.name(#opt_name);));
-                    create_options.push(create_option);
-                }
-            }
-            FnArg::Receiver(_) => return quote_spanned! {arg.span()=>
-                compile_error!("slash commands can't take `self`");
-            }.into(),
-        }
-    }
-    let wrapper_name = Ident::new(&format!("{name_snake}_wrapper"), Span::call_site());
-    let mut fut = quote!(#name_snake(#(#fn_args,)*));
-    if cmd_fn.sig.asyncness.is_none() { fut = quote!(async { #fut }) }
-    let vis = &cmd_fn.vis;
-    TokenStream::from(quote! {
-        #cmd_fn
-
-        fn #wrapper_name(ctx: &Context, mut interaction: ::serenity_utils::slash::ApplicationCommandInteraction) -> ::core::pin::Pin<::std::boxed::Box<dyn ::core::future::Future<Output = ::core::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error + ::core::marker::Send + ::core::marker::Sync>>> + ::core::marker::Send + '_>> {
-            ::std::boxed::Box::pin(async move {
-                let fut = #fut;
-                //TODO make sure no extra options are passed (error if !interaction.data.options.is_empty())
-                ::serenity_utils::slash::Responder::respond(fut.await, ctx, &interaction).await
-            })
-        }
-
-        #vis const #name_screaming_snake: ::serenity_utils::slash::Command = ::serenity_utils::slash::Command {
-            guild_id: #guild_id,
-            name: #name_kebab,
-            perms: || #perms,
-            setup: |setup| {
-                setup.name(#name_kebab);
-                setup.description(#description);
-                setup.default_member_permissions(#default_permission);
-                #(
-                    setup.create_option(|opt| {
-                        #(#create_options)*
-                        opt
-                    });
-                )*
-                setup
-            },
-            handle: #wrapper_name,
-        };
-    })
-}
-
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as AttributeArgs);
     let mut ipc_mod = None;
-    let mut slash_commands = Vec::default();
     for arg in args {
         match arg {
             NestedMeta::Meta(arg) => if let Some(ident) = arg.path().get_ident() {
@@ -623,28 +333,6 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
                         },
                         Meta::Path(_) => return quote_spanned! {arg.span()=>
                             compile_error!("missing value, use `ipc = \"...\"`");
-                        }.into(),
-                    },
-                    "slash_commands" => match arg {
-                        Meta::List(MetaList { nested, .. }) => for cmd in nested {
-                            match cmd {
-                                NestedMeta::Meta(Meta::Path(path)) if path.get_ident().is_some() => {
-                                    let ident = path.get_ident().expect("just checked");
-                                    slash_commands.push(Ident::new(&ident.to_string().to_case(Case::ScreamingSnake), ident.span()));
-                                }
-                                NestedMeta::Meta(_) => return quote_spanned! {cmd.span()=>
-                                    compile_error!("slash commands must be simple identifiers");
-                                }.into(),
-                                NestedMeta::Lit(_) => return quote_spanned! {cmd.span()=>
-                                    compile_error!("slash commands must be identifiers, not literals"); //TODO if it's a string literal, suggest removing the quotes
-                                }.into(),
-                            }
-                        },
-                        Meta::NameValue(_) => return quote_spanned! {arg.span()=>
-                            compile_error!("use `slash_commands(...)` instead of `slash_commands = ...`");
-                        }.into(),
-                        Meta::Path(_) => return quote_spanned! {arg.span()=>
-                            compile_error!("missing command list, use `slash_commands(...)`");
                         }.into(),
                     },
                     _ => return quote_spanned! {arg.span()=>
@@ -701,9 +389,6 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
     }
     wrapper_body = quote! {
         #wrapper_body
-        #(
-            builder = ::serenity_utils::handler::HandlerMethods::slash_command(builder, #slash_commands);
-        )*
         builder.run().await?;
         ::core::result::Result::Ok(())
     };

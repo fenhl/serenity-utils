@@ -10,7 +10,11 @@ use {
         time::Duration,
     },
     serenity::{
-        client::ClientBuilder,
+        all::{
+            CreateMessage,
+            ClientBuilder,
+            Http,
+        },
         framework::standard::{
             Args,
             CommandGroup,
@@ -20,11 +24,7 @@ use {
             help_commands,
             macros::help,
         },
-        http::Http,
-        model::{
-            application::interaction::Interaction,
-            prelude::*,
-        },
+        model::prelude::*,
         prelude::*,
     },
     tokio::time::sleep,
@@ -52,9 +52,9 @@ pub enum ErrorNotifier {
 impl ErrorNotifier {
     pub(crate) async fn say(&self, ctx: &Context, msg: String) -> serenity::Result<()> {
         match self {
-            ErrorNotifier::Stderr => eprintln!("{}", msg),
+            ErrorNotifier::Stderr => eprintln!("{msg}"),
             ErrorNotifier::Channel(channel) => { channel.say(ctx, msg).await?; }
-            ErrorNotifier::User(user) => { user.to_user(ctx).await?.dm(ctx, |m| m.content(msg)).await?; }
+            ErrorNotifier::User(user) => { user.to_user(ctx).await?.dm(ctx, CreateMessage::new().content(msg)).await?; }
         }
         Ok(())
     }
@@ -94,25 +94,25 @@ impl Builder {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut handler = Handler::default();
         handler.ctx_tx = Some(Arc::new(Mutex::new(Some(tx))));
+        let framework = StandardFramework::new();
+        framework.configure(|c| c
+            .with_whitespace(true)
+            .case_insensitivity(true)
+            .no_dm_prefix(true)
+            .on_mention(Some(UserId(app_info.id.0)))
+            .owners(iter::once(app_info.owner.id).collect())
+        );
         let builder = Self {
-            client: Client::builder(&token, GatewayIntents::default()).application_id(app_id.into().0),
+            client: Client::builder(&token, GatewayIntents::default()).application_id(app_id.into()),
             ctx_fut: RwFuture::new(async move { rx.await.expect("failed to store handler context") }),
-            framework: StandardFramework::new()
-                .configure(|c| c
-                    .with_whitespace(true)
-                    .case_insensitivity(true)
-                    .no_dm_prefix(true)
-                    .on_mention(Some(UserId(app_info.id.0)))
-                    .owners(iter::once(app_info.owner.id).collect())
-                )
-                .after(|ctx, msg, command_name, result| Box::pin(async move {
-                    if let Err(why) = result {
-                        if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                            let _ = error_notifier.say(ctx, format!("Command '{}' from {} returned error `{:?}`", command_name, msg.author.tag(), why)).await;
-                        }
-                        let _ = msg.reply(ctx, &format!("an error occurred while handling your command: {:?}", why)).await;
+            framework: framework.after(|ctx, msg, command_name, result| Box::pin(async move {
+                if let Err(why) = result {
+                    if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
+                        let _ = error_notifier.say(ctx, format!("Command '{}' from {} returned error `{:?}`", command_name, msg.author.tag(), why)).await;
                     }
-                })),
+                    let _ = msg.reply(ctx, &format!("an error occurred while handling your command: {:?}", why)).await;
+                }
+            })),
             intents: GatewayIntents::empty(),
             handler,
         };
@@ -144,7 +144,7 @@ impl Builder {
         }
 
         if let Some(prefix) = prefix {
-            self.framework = self.framework.configure(|c| c.prefix(prefix));
+            self.framework.configure(|c| c.prefix(prefix));
         }
         self.framework = self.framework
             .help(&HELP)
@@ -250,11 +250,6 @@ impl Builder {
 }
 
 impl HandlerMethods for Builder {
-    fn slash_command(mut self, cmd: crate::slash::Command) -> Self {
-        self.handler = self.handler.slash_command(cmd);
-        self
-    }
-
     fn on_ready(mut self, f: for<'r> fn(&'r Context, &'r Ready) -> handler::Output<'r>) -> Self {
         self.handler = self.handler.on_ready(f);
         self
@@ -270,7 +265,7 @@ impl HandlerMethods for Builder {
         self
     }
 
-    fn on_guild_create(mut self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, bool) -> handler::Output<'r>) -> Self {
+    fn on_guild_create(mut self, require_members: bool, f: for<'r> fn(&'r Context, &'r Guild, Option<bool>) -> handler::Output<'r>) -> Self {
         self.handler = self.handler.on_guild_create(require_members, f);
         self
     }
@@ -285,7 +280,7 @@ impl HandlerMethods for Builder {
         self
     }
 
-    fn on_guild_member_update(mut self, f: for<'r> fn(&'r Context, Option<&'r Member>, &'r Member) -> handler::Output<'r>) -> Self {
+    fn on_guild_member_update(mut self, f: for<'r> fn(&'r Context, Option<&'r Member>, Option<&'r Member>, &'r GuildMemberUpdateEvent) -> handler::Output<'r>) -> Self {
         self.handler = self.handler.on_guild_member_update(f);
         self
     }
