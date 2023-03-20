@@ -178,7 +178,7 @@ impl EventHandler for Handler {
         for f in &self.ready {
             if let Err(e) = f(&ctx, &data_about_bot).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `ready` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `ready` event", e).await;
                 }
             }
         }
@@ -188,7 +188,7 @@ impl EventHandler for Handler {
         for f in &self.guild_ban_addition {
             if let Err(e) = f(&ctx, guild_id, &banned_user).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_ban_addition` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_ban_addition` event", e).await;
                 }
             }
         }
@@ -198,7 +198,7 @@ impl EventHandler for Handler {
         for f in &self.guild_ban_removal {
             if let Err(e) = f(&ctx, guild_id, &unbanned_user).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_ban_removal` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_ban_removal` event", e).await;
                 }
             }
         }
@@ -208,7 +208,7 @@ impl EventHandler for Handler {
         for f in &self.guild_create {
             if let Err(e) = f(&ctx, &guild, is_new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_create` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_create` event", e).await;
                 }
             }
         }
@@ -218,7 +218,7 @@ impl EventHandler for Handler {
         for f in &self.guild_member_addition {
             if let Err(e) = f(&ctx, &new_member).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_addition` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_member_addition` event", e).await;
                 }
             }
         }
@@ -228,7 +228,7 @@ impl EventHandler for Handler {
         for f in &self.guild_member_removal {
             if let Err(e) = f(&ctx, guild_id, &user, member_data_if_available.as_ref()).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_removal` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_member_removal` event", e).await;
                 }
             }
         }
@@ -238,7 +238,7 @@ impl EventHandler for Handler {
         for f in &self.guild_member_update {
             if let Err(e) = f(&ctx, old_if_available.as_ref(), new.as_ref(), &event).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_member_update` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_member_update` event", e).await;
                 }
             }
         }
@@ -248,7 +248,7 @@ impl EventHandler for Handler {
         for f in &self.guild_members_chunk {
             if let Err(e) = f(&ctx, &chunk).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `guild_members_chunk` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `guild_members_chunk` event", e).await;
                 }
             }
         }
@@ -258,7 +258,7 @@ impl EventHandler for Handler {
         for f in &self.interaction_create {
             if let Err(e) = f(&ctx, &interaction).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `interaction_create` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `interaction_create` event", e).await;
                 }
             }
         }
@@ -268,7 +268,7 @@ impl EventHandler for Handler {
         for f in &self.message {
             if let Err(e) = f(&ctx, &new_message).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `message` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `message` event", e).await;
                 }
             }
         }
@@ -278,7 +278,7 @@ impl EventHandler for Handler {
         for f in &self.voice_state_update {
             if let Err(e) = f(&ctx, old.as_ref(), &new).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    let _ = error_notifier.say(&ctx, format!("error in `voice_state_update` event: `{e:?}`")).await;
+                    let _ = error_notifier.say(&ctx, "error in `voice_state_update` event", e).await;
                 }
             }
         }

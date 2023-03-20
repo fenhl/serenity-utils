@@ -3,6 +3,7 @@
 use {
     std::{
         collections::HashSet,
+        fmt,
         future::Future,
         iter,
         pin::Pin,
@@ -14,6 +15,7 @@ use {
             CreateMessage,
             ClientBuilder,
             Http,
+            MessageBuilder,
         },
         framework::standard::{
             Args,
@@ -50,11 +52,27 @@ pub enum ErrorNotifier {
 }
 
 impl ErrorNotifier {
-    pub(crate) async fn say(&self, ctx: &Context, msg: String) -> serenity::Result<()> {
+    pub(crate) async fn say(&self, ctx: &Context, error_ctx: &str, e: impl fmt::Debug + fmt::Display) -> serenity::Result<()> {
         match self {
-            ErrorNotifier::Stderr => eprintln!("{msg}"),
-            ErrorNotifier::Channel(channel) => { channel.say(ctx, msg).await?; }
-            ErrorNotifier::User(user) => { user.to_user(ctx).await?.dm(ctx, CreateMessage::new().content(msg)).await?; }
+            ErrorNotifier::Stderr => eprintln!("{error_ctx}: {e}\n{e:?}"),
+            ErrorNotifier::Channel(channel) => {
+                let msg = MessageBuilder::default()
+                    .push_safe(error_ctx)
+                    .push_line(':')
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build();
+                channel.say(ctx, msg).await?;
+            }
+            ErrorNotifier::User(user) => {
+                let msg = MessageBuilder::default()
+                    .push_safe(error_ctx)
+                    .push_line(':')
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build();
+                user.to_user(ctx).await?.dm(ctx, CreateMessage::new().content(msg)).await?;
+            }
         }
         Ok(())
     }
@@ -108,9 +126,9 @@ impl Builder {
             framework: framework.after(|ctx, msg, command_name, result| Box::pin(async move {
                 if let Err(why) = result {
                     if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                        let _ = error_notifier.say(ctx, format!("Command '{}' from {} returned error `{:?}`", command_name, msg.author.tag(), why)).await;
+                        let _ = error_notifier.say(ctx, &format!("Command '{command_name}' from {} returned error", msg.author.tag()), &why).await;
                     }
-                    let _ = msg.reply(ctx, &format!("an error occurred while handling your command: {:?}", why)).await;
+                    let _ = msg.reply(ctx, &format!("an error occurred while handling your command: {why:?}")).await;
                 }
             })),
             intents: GatewayIntents::empty(),
@@ -216,13 +234,10 @@ impl Builder {
             Box::pin(async move {
                 let ctx = ctx_fut.read().await;
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
-                    error_notifier.say(&*ctx, format!(
-                        "{} thread crashed: {} (`{:?}`), {}",
-                        thread_kind,
-                        e,
-                        e,
-                        if let Some(auto_retry) = auto_retry { format!("auto-retrying in `{:?}`", auto_retry) } else { format!("**not** auto-retrying") },
-                    )).await.expect("failed to send thread crash notification");
+                    error_notifier.say(&*ctx, &format!(
+                        "{thread_kind} thread crashed, {}",
+                        if let Some(auto_retry) = auto_retry { format!("auto-retrying in `{auto_retry:?}`") } else { format!("**not** auto-retrying") },
+                    ), e).await.expect("failed to send thread crash notification");
                 };
             })
         })));
