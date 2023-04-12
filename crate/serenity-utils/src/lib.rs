@@ -9,7 +9,7 @@ use {
         time::Duration,
     },
     serenity::{
-        client::bridge::gateway::ShardManager,
+        gateway::ShardManager,
         model::prelude::*,
         prelude::*,
     },

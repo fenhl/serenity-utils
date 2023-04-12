@@ -9,28 +9,13 @@ use {
         quote_spanned,
     },
     syn::{
-        AttributeArgs,
-        FnArg,
-        ItemConst,
-        ItemFn,
-        ItemUse,
-        Lit,
-        Meta,
-        MetaNameValue,
-        NestedMeta,
-        Path,
-        PathArguments,
-        ReturnType,
-        Token,
-        Type,
-        TypePath,
+        *,
         parse::{
             Parse,
             ParseStream,
             Parser as _,
         },
-        parse_macro_input,
-        parse_quote,
+        punctuated::Punctuated,
         spanned::Spanned as _,
     },
 };
@@ -41,7 +26,7 @@ enum Port {
 }
 
 impl Parse for Port {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Port> {
+    fn parse(input: ParseStream<'_>) -> Result<Port> {
         let lookahead = input.lookahead1();
         if lookahead.peek(Token![const]) {
             input.parse().map(Port::Const)
@@ -62,7 +47,7 @@ impl quote::ToTokens for Port {
     }
 }
 
-fn parser(input: ParseStream<'_>) -> syn::Result<(ItemUse, Port, Vec<ItemFn>)> {
+fn parser(input: ParseStream<'_>) -> Result<(ItemUse, Port, Vec<ItemFn>)> {
     let uses = input.parse()?;
     let port = input.parse()?;
     let mut commands = vec![];
@@ -111,7 +96,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
     let client_fns = commands.iter()
         .zip(&cmd_names)
         .map(|(cmd, cmd_name)| {
-            let docs = cmd.attrs.iter().filter(|attr| attr.path.is_ident("doc")).collect::<Vec<_>>();
+            let docs = cmd.attrs.iter().filter(|attr| attr.path().is_ident("doc")).collect::<Vec<_>>();
             let fn_name = &cmd.sig.ident;
             let typed_args = cmd.sig.inputs.iter().skip(1).collect::<Vec<_>>();
             let untyped_args = cmd.sig.inputs.iter().skip(1).map(|arg| {
@@ -123,7 +108,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
             }).collect::<Vec<_>>();
             quote! {
                 #(#docs)*
-                pub fn #fn_name(#(#typed_args),*) -> Result<(), Error> {
+                pub fn #fn_name(#(#typed_args),*) -> ::core::result::Result<(), Error> {
                     let received = send(vec![#cmd_name.to_owned() #(, #untyped_args.to_string())*])?;
                     if received != #cmd_name {
                         return Err(Error::WrongReply {
@@ -183,7 +168,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
 
         #addr_fn
 
-        async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::serenity_utils::tokio::net::TcpStream) -> Result<(), Error> {
+        async fn handle_client(ctx_fut: &::serenity_utils::RwFuture<::serenity::client::Context>, stream: ::serenity_utils::tokio::net::TcpStream) -> ::core::result::Result<(), Error> {
             let mut last_error = Ok(());
             let mut buf = String::default();
             let (reader, mut writer) = stream.into_split();
@@ -244,7 +229,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         }
 
         /// Sends an IPC command to the bot.
-        pub fn send<T: ::std::fmt::Display, I: IntoIterator<Item = T>>(cmd: I) -> Result<String, Error> { //TODO rename to send_sync and add async variant?
+        pub fn send<T: ::std::fmt::Display, I: IntoIterator<Item = T>>(cmd: I) -> ::core::result::Result<String, Error> { //TODO rename to send_sync and add async variant?
             let mut stream = ::std::net::TcpStream::connect(addr())?;
             writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::quote(&arg.to_string()).into_owned()).collect::<Vec<_>>().join(" "))?;
             let mut buf = String::default();
@@ -292,7 +277,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
 
                 #addr_fn
 
-                fn send(cmd: Vec<String>) -> Result<String, Error> {
+                fn send(cmd: Vec<String>) -> ::core::result::Result<String, Error> {
                     let mut stream = ::std::net::TcpStream::connect(addr())?;
                     writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::quote(&arg).into_owned()).collect::<Vec<_>>().join(" "))?;
                     let mut buf = String::default();
@@ -311,42 +296,27 @@ pub fn ipc(input: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as AttributeArgs);
+    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let mut ipc_mod = None;
     for arg in args {
-        match arg {
-            NestedMeta::Meta(arg) => if let Some(ident) = arg.path().get_ident() {
-                match &*ident.to_string() {
-                    "ipc" => match arg {
-                        Meta::List(_) => return quote_spanned! {arg.span()=>
-                            compile_error!("use `ipc = \"...\"` instead of `ipc(...)`");
-                        }.into(),
-                        Meta::NameValue(MetaNameValue { lit, .. }) => if let Lit::Str(lit) = lit {
-                            match lit.parse::<Path>() {
-                                Ok(code) => ipc_mod = Some(code),
-                                Err(e) => return e.to_compile_error().into(),
-                            }
-                        } else {
-                            return quote_spanned! {lit.span()=>
-                                compile_error!("the path to the IPC module must be quoted as a string literal");
-                            }.into()
-                        },
-                        Meta::Path(_) => return quote_spanned! {arg.span()=>
-                            compile_error!("missing value, use `ipc = \"...\"`");
-                        }.into(),
-                    },
-                    _ => return quote_spanned! {arg.span()=>
-                        compile_error!("unexpected serenity_utils::main attribute argument");
-                    }.into(),
-                }
-            } else {
-                return quote_spanned! {arg.span()=>
-                    compile_error!("unexpected serenity_utils::main attribute argument");
-                }.into()
-            },
-            NestedMeta::Lit(_) => return quote_spanned! {arg.span()=>
-                compile_error!("serenity_utils::main attribute arguments must be identifiers, not literals"); //TODO if it's a string literal, suggest removing the quotes
-            }.into(),
+        if arg.path().is_ident("ipc") {
+            match arg.require_name_value() {
+                Ok(MetaNameValue { value, .. }) => if let Expr::Lit(ExprLit { lit: Lit::Str(lit), .. }) = value {
+                    match lit.parse::<Path>() {
+                        Ok(code) => ipc_mod = Some(code),
+                        Err(e) => return e.to_compile_error().into(),
+                    }
+                } else {
+                    return quote_spanned! {value.span()=>
+                        compile_error!("the path to the IPC module must be quoted as a string literal");
+                    }.into()
+                },
+                Err(e) => return e.into_compile_error().into(),
+            }
+        } else {
+            return quote_spanned! {arg.span()=>
+                compile_error!("unexpected serenity_utils::main attribute argument");
+            }.into()
         }
     }
     let main_fn = parse_macro_input!(item as ItemFn);
