@@ -7,7 +7,10 @@ use {
         sync::Arc,
     },
     serenity::{
-        all::Interaction,
+        all::{
+            CreateBotAuthParameters,
+            Interaction,
+        },
         model::prelude::*,
         prelude::*,
     },
@@ -169,10 +172,14 @@ impl EventHandler for Handler {
                 }
             }
         }
-        let guilds = data_about_bot.user.guilds(&ctx).await.expect("failed to get guilds");
-        if guilds.is_empty() {
+        if data_about_bot.guilds.is_empty() {
             println!("No guilds found, use following URL to invite the bot:");
-            println!("{}", data_about_bot.user.invite_url(&ctx, Permissions::all()).await.expect("failed to generate invite URL")); //TODO allow customizing permissions?
+            let invite_url = CreateBotAuthParameters::new()
+                .permissions(Permissions::all()) //TODO allow customizing permissions?
+                .scopes(&[Scope::Bot])
+                .auto_client_id(&ctx).await.expect("failed to generate invite URL")
+                .build();
+            println!("{invite_url}");
             shut_down(&ctx).await; //TODO allow running without guilds?
         }
         for f in &self.ready {

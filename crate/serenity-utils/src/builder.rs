@@ -5,7 +5,6 @@ use {
         collections::HashSet,
         fmt,
         future::Future,
-        iter,
         pin::Pin,
         sync::Arc,
         time::Duration,
@@ -107,7 +106,7 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub(crate) async fn new(app_id: impl Into<ApplicationId>, token: String) -> serenity::Result<Self> {
+    pub(crate) async fn new(token: String) -> serenity::Result<Self> {
         let app_info = Http::new(&token).get_current_application_info().await?;
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut handler = Handler::default();
@@ -118,10 +117,10 @@ impl Builder {
             .case_insensitivity(true)
             .no_dm_prefix(true)
             .on_mention(Some(UserId(app_info.id.0)))
-            .owners(iter::once(app_info.owner.id).collect())
+            .owners(app_info.owner.map(|user| user.id).into_iter().collect())
         );
         let builder = Self {
-            client: Client::builder(&token, GatewayIntents::default()).application_id(app_id.into()),
+            client: Client::builder(&token, GatewayIntents::default()).application_id(app_info.id),
             ctx_fut: RwFuture::new(async move { rx.await.expect("failed to store handler context") }),
             framework: framework.after(|ctx, msg, command_name, result| Box::pin(async move {
                 if let Err(why) = result {
