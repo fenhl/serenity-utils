@@ -20,8 +20,8 @@ default-features = false
 features = ["from"]
 
 [dependencies.serenity]
-git = "https://github.com/kangalio/serenity"
-branch = "fix-shutdown"
+git = "https://github.com/serenity-rs/serenity"
+branch = "next"
 features = ["unstable_discord_api"]
 
 [dependencies.serenity-utils-derive]
