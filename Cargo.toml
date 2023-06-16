@@ -4,6 +4,6 @@ default-members = ["crate/serenity-utils"]
 resolver = "2"
 
 [workspace.package]
-version = "0.10.2"
+version = "0.10.3"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
