@@ -125,16 +125,10 @@ impl<T: Send + Sync + Default> Default for RwFuture<T> {
 }
 
 /// A `typemap` key holding the [`ShardManager`]. Used in `shut_down`.
-pub enum ShardManagerContainer {}
+pub struct ShardManagerContainer;
 
 impl TypeMapKey for ShardManagerContainer {
-    type Value = Arc<Mutex<ShardManager>>;
-}
-
-enum ShutdownNotifier {}
-
-impl TypeMapKey for ShutdownNotifier {
-    type Value = Arc<tokio::sync::Notify>;
+    type Value = Arc<ShardManager>;
 }
 
 /// Creates a builder for setting up and running a bot.
@@ -148,9 +142,7 @@ pub async fn builder(token: String) -> serenity::Result<Builder> {
 pub async fn shut_down(ctx: &Context) {
     ctx.invisible(); // hack to prevent the bot showing as online when it's not
     let data = ctx.data.read().await;
-    // workaround for https://github.com/serenity-rs/serenity/issues/2507
-    data.get::<ShutdownNotifier>().expect("missing shutdown notifier").notify_waiters();
-    let mut shard_manager = data.get::<ShardManagerContainer>().expect("missing shard manager").lock().await;
+    let shard_manager = data.get::<ShardManagerContainer>().expect("missing shard manager");
     shard_manager.shutdown_all().await;
     sleep(Duration::from_secs(1)).await; // wait to make sure websockets can be closed cleanly
 }

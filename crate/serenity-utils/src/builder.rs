@@ -28,10 +28,7 @@ use {
         model::prelude::*,
         prelude::*,
     },
-    tokio::{
-        select,
-        time::sleep,
-    },
+    tokio::time::sleep,
     crate::{
         RwFuture,
         handler::{
@@ -249,8 +246,7 @@ impl Builder {
     /// Convenience method wrapping `self` in [`Ok`] which can be used at the end of a method call chain.
     pub fn ok<E>(self) -> Result<Self, E> { Ok(self) }
 
-    /// Runs the Discord bot until shutdown.
-    pub async fn run(mut self) -> serenity::Result<()> { // used in `serenity_utils::main`
+    #[doc(hidden)] pub async fn run(mut self) -> serenity::Result<()> { // used in `serenity_utils::main`
         self.intents |= self.handler.intents;
         self.client = self.client.event_handler(self.handler);
         let mut client = self.client
@@ -260,16 +256,8 @@ impl Builder {
         {
             let mut data = client.data.write().await;
             data.insert::<crate::ShardManagerContainer>(Arc::clone(&client.shard_manager));
-            data.insert::<crate::ShutdownNotifier>(Arc::default());
         }
-        let shutdown_notifier = Arc::clone(client.data.read().await.get::<crate::ShutdownNotifier>().expect("missing shutdown notifier"));
-        select! {
-            res = client.start_autosharded() => {
-                let () = res?;
-            }
-            // workaround for https://github.com/serenity-rs/serenity/issues/2507
-            () = shutdown_notifier.notified() => {}
-        }
+        client.start_autosharded().await?;
         sleep(Duration::from_secs(1)).await; // wait to make sure websockets can be closed cleanly
         Ok(())
     }
