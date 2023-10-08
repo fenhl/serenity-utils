@@ -29,7 +29,7 @@ branch = "next"
 features = ["unstable_discord_api"]
 
 [dependencies.serenity-utils-derive]
-version = "=0.10.5"
+version = "=0.10.6"
 path = "../serenity-utils-derive"
 
 [dependencies.tokio]

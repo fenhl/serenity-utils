@@ -5,6 +5,7 @@ use {
         collections::HashSet,
         fmt,
         future::Future,
+        num::NonZeroU64,
         pin::Pin,
         sync::Arc,
         time::Duration,
@@ -116,7 +117,7 @@ impl Builder {
             .with_whitespace(true)
             .case_insensitivity(true)
             .no_dm_prefix(true)
-            .on_mention(Some(UserId(app_info.id.0)))
+            .on_mention(Some(UserId::from(NonZeroU64::from(app_info.id))))
             .owners(app_info.owner.map(|user| user.id).into_iter().collect())
         );
         let builder = Self {
