@@ -24,12 +24,11 @@ default-features = false
 features = ["from"]
 
 [dependencies.serenity]
-git = "https://github.com/serenity-rs/serenity"
-branch = "next"
+version = "0.12"
 features = ["unstable_discord_api"]
 
 [dependencies.serenity-utils-derive]
-version = "=0.10.6"
+version = "=0.11.0"
 path = "../serenity-utils-derive"
 
 [dependencies.tokio]

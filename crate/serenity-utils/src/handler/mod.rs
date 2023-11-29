@@ -96,13 +96,13 @@ impl HandlerMethods for Handler {
     }
 
     fn on_guild_ban_addition(mut self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self {
-        self.intents |= GatewayIntents::GUILD_BANS;
+        self.intents |= GatewayIntents::GUILD_MODERATION;
         self.guild_ban_addition.push(f);
         self
     }
 
     fn on_guild_ban_removal(mut self, f: for<'r> fn(&'r Context, GuildId, &'r User) -> Output<'r>) -> Self {
-        self.intents |= GatewayIntents::GUILD_BANS;
+        self.intents |= GatewayIntents::GUILD_MODERATION;
         self.guild_ban_removal.push(f);
         self
     }

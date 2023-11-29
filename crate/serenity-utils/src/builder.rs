@@ -2,7 +2,6 @@
 
 use {
     std::{
-        collections::HashSet,
         fmt,
         future::Future,
         num::NonZeroU64,
@@ -17,15 +16,7 @@ use {
             Http,
             MessageBuilder,
         },
-        framework::standard::{
-            Args,
-            CommandGroup,
-            CommandResult,
-            HelpOptions,
-            StandardFramework,
-            help_commands,
-            macros::help,
-        },
+        framework::standard::StandardFramework,
         model::prelude::*,
         prelude::*,
     },
@@ -113,7 +104,7 @@ impl Builder {
         let mut handler = Handler::default();
         handler.ctx_tx = Some(Arc::new(Mutex::new(Some(tx))));
         let framework = StandardFramework::new();
-        framework.configure(|c| c
+        framework.configure(serenity::framework::standard::Configuration::default()
             .with_whitespace(true)
             .case_insensitivity(true)
             .no_dm_prefix(true)
@@ -151,24 +142,6 @@ impl Builder {
     /// The default is no action.
     pub fn error_notifier(self, notifier: ErrorNotifier) -> Self {
         self.data::<ErrorNotifier>(notifier)
-    }
-
-    /// Adds command handling via [`serenity`]'s [`StandardFramework`] with a useful default configuration.
-    pub fn message_commands(mut self, prefix: Option<&str>, commands: &'static CommandGroup) -> Self {
-        #[help]
-        async fn help(ctx: &Context, msg: &Message, args: Args, help_options: &'static HelpOptions, groups: &[&'static CommandGroup], owners: HashSet<UserId>) -> CommandResult {
-            let _ = help_commands::with_embeds(ctx, msg, args, help_options, groups, owners).await;
-            Ok(())
-        }
-
-        if let Some(prefix) = prefix {
-            self.framework.configure(|c| c.prefix(prefix));
-        }
-        self.framework = self.framework
-            .help(&HELP)
-            .group(commands);
-        self.intents |= GatewayIntents::DIRECT_MESSAGES | GatewayIntents::GUILD_MESSAGES;
-        self
     }
 
     /// Sets the reply content for unrecognized messages in DMs.
