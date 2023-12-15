@@ -46,7 +46,7 @@ pub trait HandlerMethods {
     fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
 }
 
-/// A type that implements serenity's [`EventHandler`](serenity::client::EventHandler) trait, but with a more convenient interface, such as requesting intents automatically.
+/// A type that implements serenity's [`EventHandler`] trait, but with a more convenient interface, such as requesting intents automatically.
 ///
 /// Use the trait methods on [`HandlerMethods`] to configure this handler.
 #[derive(Default)]
