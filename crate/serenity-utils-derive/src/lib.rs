@@ -47,8 +47,12 @@ impl quote::ToTokens for Port {
     }
 }
 
-fn parser(input: ParseStream<'_>) -> Result<(ItemUse, Port, Vec<ItemFn>)> {
-    let uses = input.parse()?;
+fn parser(input: ParseStream<'_>) -> Result<(Option<ItemUse>, Port, Vec<ItemFn>)> {
+    let uses = if input.peek(Token![use]) {
+        Some(input.parse()?)
+    } else {
+        None
+    };
     let port = input.parse()?;
     let mut commands = vec![];
     while !input.is_empty() {
