@@ -43,6 +43,7 @@ pub trait HandlerMethods {
     fn on_interaction_create(self, f: for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>) -> Self;
     fn on_guild_role_create(self, f: for<'r> fn(&'r Context, &'r Role) -> Output<'r>) -> Self;
     fn on_message(self, require_content: bool, f: for<'r> fn(&'r Context, &'r Message) -> Output<'r>) -> Self;
+    fn on_message_delete(self, f: for<'r> fn(&'r Context, ChannelId, MessageId, Option<GuildId>) -> Output<'r>) -> Self;
     fn on_voice_state_update(self, f: for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>) -> Self;
 }
 
@@ -64,12 +65,29 @@ pub struct Handler {
     interaction_create: Vec<for<'r> fn(&'r Context, &'r Interaction) -> Output<'r>>,
     guild_role_create: Vec<for<'r> fn(&'r Context, &'r Role) -> Output<'r>>,
     message: Vec<for<'r> fn(&'r Context, &'r Message) -> Output<'r>>,
+    message_delete: Vec<for<'r> fn(&'r Context, ChannelId, MessageId, Option<GuildId>) -> Output<'r>>,
     voice_state_update: Vec<for<'r> fn(&'r Context, Option<&'r VoiceState>, &'r VoiceState) -> Output<'r>>,
 }
 
 impl Handler {
     pub(crate) fn merge(&mut self, other: Self) {
-        let Handler { ctx_tx, intents, ready, guild_ban_addition, guild_ban_removal, guild_create, guild_member_addition, guild_member_removal, guild_member_update, guild_members_chunk, interaction_create, guild_role_create, message, voice_state_update } = other;
+        let Handler {
+            ctx_tx,
+            intents,
+            ready,
+            guild_ban_addition,
+            guild_ban_removal,
+            guild_create,
+            guild_member_addition,
+            guild_member_removal,
+            guild_member_update,
+            guild_members_chunk,
+            interaction_create,
+            guild_role_create,
+            message,
+            message_delete,
+            voice_state_update,
+        } = other;
         if let Some(ctx_tx) = ctx_tx {
             self.ctx_tx.get_or_insert(ctx_tx);
         }
@@ -85,6 +103,7 @@ impl Handler {
         self.interaction_create.extend(interaction_create);
         self.guild_role_create.extend(guild_role_create);
         self.message.extend(message);
+        self.message_delete.extend(message_delete);
         self.voice_state_update.extend(voice_state_update);
     }
 }
@@ -152,6 +171,12 @@ impl HandlerMethods for Handler {
         self.intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES; //TODO allow customizing which to receive?
         if require_content { self.intents |= GatewayIntents::MESSAGE_CONTENT }
         self.message.push(f);
+        self
+    }
+
+    fn on_message_delete(mut self, f: for<'r> fn(&'r Context, ChannelId, MessageId, Option<GuildId>) -> Output<'r>) -> Self {
+        self.intents |= GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES; //TODO allow customizing which to receive?
+        self.message_delete.push(f);
         self
     }
 
@@ -276,6 +301,28 @@ impl EventHandler for Handler {
             if let Err(e) = f(&ctx, &new_message).await {
                 if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
                     let _ = error_notifier.say(&ctx, "error in `message` event", e).await;
+                }
+            }
+        }
+    }
+
+    async fn message_delete(&self, ctx: Context, channel_id: ChannelId, deleted_message_id: MessageId, guild_id: Option<GuildId>) {
+        for f in &self.message_delete {
+            if let Err(e) = f(&ctx, channel_id, deleted_message_id, guild_id).await {
+                if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
+                    let _ = error_notifier.say(&ctx, "error in `message_delete` event", e).await;
+                }
+            }
+        }
+    }
+
+    async fn message_delete_bulk(&self, ctx: Context, channel_id: ChannelId, multiple_deleted_message_ids: Vec<MessageId>, guild_id: Option<GuildId>) {
+        for deleted_message_id in multiple_deleted_message_ids {
+            for f in &self.message_delete {
+                if let Err(e) = f(&ctx, channel_id, deleted_message_id, guild_id).await {
+                    if let Some(error_notifier) = ctx.data.read().await.get::<ErrorNotifier>() {
+                        let _ = error_notifier.say(&ctx, "error in `message_delete` event", e).await;
+                    }
                 }
             }
         }

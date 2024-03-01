@@ -1,4 +1,5 @@
 //! Contains the [`Builder`] type returned by [`serenity_utils::builder`](crate::builder()).
+#![allow(deprecated)] //TODO remove standard framework
 
 use {
     std::{
@@ -290,6 +291,11 @@ impl HandlerMethods for Builder {
 
     fn on_message(mut self, require_content: bool, f: for<'r> fn(&'r Context, &'r Message) -> handler::Output<'r>) -> Self {
         self.handler = self.handler.on_message(require_content, f);
+        self
+    }
+
+    fn on_message_delete(mut self, f: for<'r> fn(&'r Context, ChannelId, MessageId, Option<GuildId>) -> handler::Output<'r>) -> Self {
+        self.handler = self.handler.on_message_delete(f);
         self
     }
 
