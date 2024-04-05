@@ -235,7 +235,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
         /// Sends an IPC command to the bot.
         pub fn send<T: ::std::fmt::Display, I: IntoIterator<Item = T>>(cmd: I) -> ::core::result::Result<String, Error> { //TODO rename to send_sync and add async variant?
             let mut stream = ::std::net::TcpStream::connect(addr())?;
-            writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::quote(&arg.to_string()).into_owned()).collect::<Vec<_>>().join(" "))?;
+            writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::try_quote(&arg.to_string()).expect("failed to shell-quote IPC command").into_owned()).collect::<Vec<_>>().join(" "))?;
             let mut buf = String::default();
             ::std::io::BufReader::new(stream).read_line(&mut buf)?;
             if buf.pop() != Some('\n') { return Err(Error::MissingNewline) }
@@ -283,7 +283,7 @@ pub fn ipc(input: TokenStream) -> TokenStream {
 
                 fn send(cmd: Vec<String>) -> ::core::result::Result<String, Error> {
                     let mut stream = ::std::net::TcpStream::connect(addr())?;
-                    writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::quote(&arg).into_owned()).collect::<Vec<_>>().join(" "))?;
+                    writeln!(&mut stream, "{}", cmd.into_iter().map(|arg| ::serenity_utils::shlex::try_quote(&arg).expect("failed to shell-quote IPC command").into_owned()).collect::<Vec<_>>().join(" "))?;
                     let mut buf = String::default();
                     ::std::io::BufReader::new(stream).read_line(&mut buf)?;
                     if buf.pop() != Some('\n') { return Err(Error::MissingNewline) }
