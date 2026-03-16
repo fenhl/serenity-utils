@@ -396,8 +396,9 @@ pub fn main(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn description(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as LitStr);
-    let error = if input.value().chars().count() > 100 {
-        quote_spanned!(input.span()=> compile_error!("command description longer than 100 characters");)
+    let len = input.value().chars().count();
+    let error = if len > 100 {
+        quote_spanned!(input.span()=> compile_error!(concat!("command description is ", #len, " characters but maximum is 100 characters"));)
     } else {
         quote!()
     };
