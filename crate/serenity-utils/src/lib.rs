@@ -24,6 +24,7 @@ use {
 };
 pub use {
     serenity_utils_derive::{
+        description,
         ipc,
         main,
     },
