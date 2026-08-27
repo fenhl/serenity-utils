@@ -12,7 +12,7 @@ path = "src/lib.rs"
 futures = "0.3" # used in proc macro
 parking_lot = "0.12" # used in proc macro
 shlex = "1" # used in proc macro
-thiserror = "1"
+thiserror = "2" # used in proc macro
 
 [dependencies.chrono]
 version = "0.4"

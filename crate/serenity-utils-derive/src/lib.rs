@@ -254,29 +254,22 @@ pub fn ipc(input: TokenStream) -> TokenStream {
                 #port
 
                 /// An error that can occur in an IPC command.
-                #[derive(Debug, ::serenity_utils::derive_more::From)]
+                #[derive(Debug, ::serenity_utils::thiserror::Error)]
                 pub enum Error {
                     #[allow(missing_docs)]
-                    Io(::std::io::Error),
+                    #[error(transparent)]
+                    Io(#[from] ::std::io::Error),
                     /// The command reply did not end in a line break.
+                    #[error("the reply to an IPC command did not end in a newline")]
                     MissingNewline,
                     /// The bot replied with something other than the expected reply.
+                    #[error("unexpected IPC command reply: expected {expected:?}, received {received:?}")]
                     WrongReply {
                         /// The expected reply.
                         expected: String,
                         /// The reply that was actually received.
                         received: String,
                     },
-                }
-
-                impl ::std::fmt::Display for Error {
-                    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                        match self {
-                            Error::Io(e) => e.fmt(f),
-                            Error::MissingNewline => write!(f, "the reply to an IPC command did not end in a newline"),
-                            Error::WrongReply { expected, received } => write!(f, "unexpected IPC command reply: expected {:?}, received {:?}", expected, received),
-                        }
-                    }
                 }
 
                 #addr_fn

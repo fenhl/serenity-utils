@@ -36,6 +36,7 @@ pub use {
     parking_lot,
     serenity,
     shlex,
+    thiserror,
     tokio,
     tokio_stream,
 }; // used in proc macro
