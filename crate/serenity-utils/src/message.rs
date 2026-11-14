@@ -1,12 +1,10 @@
 //! Extensions for serenity's [`MessageBuilder`] type.
 
-use {
-    chrono::prelude::*,
-    serenity::{
-        all::MessageBuilder,
-        model::prelude::*,
-    },
+use serenity::{
+    all::MessageBuilder,
+    model::prelude::*,
 };
+#[cfg(feature = "chrono")] use chrono::prelude::*;
 
 /// The ways timestamps in Discord messages can be formatted. [Discord docs](https://discord.com/developers/docs/reference#message-formatting-timestamp-styles)
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,6 +26,7 @@ pub enum TimestampStyle {
     Relative,
 }
 
+#[cfg(any(feature = "chrono", feature = "jiff"))]
 impl TimestampStyle {
     fn to_char(&self) -> char {
         match self {
@@ -47,7 +46,11 @@ pub trait MessageBuilderExt {
     /// Appends a clickable link to a slash command to the message. `name` must be the exact command name, otherwise it may not be clickable.
     fn mention_command(&mut self, command_id: CommandId, name: &str) -> &mut Self;
     /// Formats the given date and time according to the viewer's locale and the given style.
+    #[cfg(feature = "chrono")]
     fn push_timestamp<Z: TimeZone>(&mut self, timestamp: DateTime<Z>, format: TimestampStyle) -> &mut Self;
+    /// Formats the given date and time according to the viewer's locale and the given style.
+    #[cfg(feature = "jiff")]
+    fn push_timestamp_jiff(&mut self, timestamp: impl Into<jiff::Timestamp>, format: TimestampStyle) -> &mut Self;
 }
 
 impl MessageBuilderExt for MessageBuilder {
@@ -55,9 +58,19 @@ impl MessageBuilderExt for MessageBuilder {
         self.push("</").push(name).push(':').push(command_id.to_string()).push('>')
     }
 
+    #[cfg(feature = "chrono")]
     fn push_timestamp<Z: TimeZone>(&mut self, timestamp: DateTime<Z>, format: TimestampStyle) -> &mut Self {
         self.push("<t:")
             .push(timestamp.timestamp().to_string())
+            .push(":")
+            .push(format.to_char().to_string())
+            .push(">")
+    }
+
+    #[cfg(feature = "jiff")]
+    fn push_timestamp_jiff(&mut self, timestamp: impl Into<jiff::Timestamp>, format: TimestampStyle) -> &mut Self {
+        self.push("<t:")
+            .push(timestamp.into().as_second().to_string())
             .push(":")
             .push(format.to_char().to_string())
             .push(">")
